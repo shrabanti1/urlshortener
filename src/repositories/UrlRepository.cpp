@@ -1,5 +1,7 @@
 #include "UrlRepository.h"
 
+#include "cache/UrlCache.h"
+
 void UrlRepository::nextId(std::function<void(long long)> onSuccess,
                            ErrorCb onError) const
 {
@@ -36,24 +38,49 @@ void UrlRepository::findByShortCode(
     std::function<void(std::optional<UrlRecord>)> onSuccess,
     ErrorCb onError) const
 {
-    drogon::app().getDbClient()->execSqlAsync(
-        "SELECT id, original_url, short_code FROM urls WHERE short_code = $1",
-        [onSuccess](const drogon::orm::Result &r)
+    static const UrlCache cache;
+
+    // ---- 1. Ask the cache first -------------------------------------------
+    cache.get(
+        shortCode,
+        [shortCode, onSuccess, onError](std::optional<UrlRecord> cached)
         {
-            if (r.empty())
+            if (cached)
             {
-                onSuccess(std::nullopt);
+                LOG_DEBUG << "cache HIT for " << shortCode;
+                onSuccess(std::move(cached));
                 return;
             }
-            UrlRecord rec;
-            rec.id          = r[0]["id"].as<long long>();
-            rec.originalUrl = r[0]["original_url"].as<std::string>();
-            rec.shortCode   = r[0]["short_code"].as<std::string>();
-            onSuccess(rec);
-        },
-        [onError](const drogon::orm::DrogonDbException &e)
-        {
-            onError(e.base().what());
-        },
-        shortCode);
+
+            LOG_DEBUG << "cache MISS for " << shortCode;
+
+            // ---- 2. Miss: go to the source of truth ------------------------
+            drogon::app().getDbClient()->execSqlAsync(
+                "SELECT id, original_url, short_code FROM urls WHERE short_code = $1",
+                [shortCode, onSuccess](const drogon::orm::Result &r)
+                {
+                    if (r.empty())
+                    {
+                        // Deliberately NOT cached; see README on negative caching.
+                        onSuccess(std::nullopt);
+                        return;
+                    }
+
+                    UrlRecord rec;
+                    rec.id          = r[0]["id"].as<long long>();
+                    rec.originalUrl = r[0]["original_url"].as<std::string>();
+                    rec.shortCode   = r[0]["short_code"].as<std::string>();
+
+                    // ---- 3. Populate the cache for next time ---------------
+                    static const UrlCache cache;
+                    cache.put(rec);
+
+                    onSuccess(rec);
+                },
+                [onError](const drogon::orm::DrogonDbException &e)
+                {
+                    onError(e.base().what());
+                },
+                shortCode);
+        });
 }

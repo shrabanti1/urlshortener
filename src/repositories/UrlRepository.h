@@ -5,14 +5,7 @@
 #include <optional>
 #include <string>
 
-// A plain data object: one row of the urls table, with no database types
-// attached. Layers above this never touch drogon::orm::Result.
-struct UrlRecord
-{
-    long long id = 0;
-    std::string originalUrl;
-    std::string shortCode;
-};
+#include "models/UrlRecord.h"
 
 // All SQL for the urls table lives here and nowhere else.
 class UrlRepository
@@ -29,6 +22,8 @@ class UrlRepository
                 std::function<void()> onSuccess,
                 ErrorCb onError) const;
 
+    // Cache-aside: checks Redis first, falls back to PostgreSQL on a miss,
+    // and populates the cache with what it finds.
     // std::nullopt means "no such code", which is not an error.
     void findByShortCode(const std::string &shortCode,
                          std::function<void(std::optional<UrlRecord>)> onSuccess,

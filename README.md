@@ -7,7 +7,7 @@ A production-style URL shortener backend built in C++.
 ## Status
 - [x] **Phase 1 — Drogon + PostgreSQL** (working)
 - [x] **Phase 2 — Base62** (working)
-- [ ] Phase 3 — Redis
+- [x] **Phase 3 — Redis** (working)
 - [ ] Phase 4 — Authentication
 - [ ] Phase 5 — Analytics
 - [ ] Phase 6 — Testing
@@ -37,8 +37,9 @@ PostgreSQL support (it declares no libpq dependency, so the backend is silently
 excluded). Verify any Drogon build with `otool -L .../libdrogon.dylib | grep pq`.
 
 ```bash
-brew install cmake postgresql@17 jsoncpp c-ares brotli openssl@3 hiredis
+brew install cmake postgresql@17 jsoncpp c-ares brotli openssl@3 hiredis redis
 brew services start postgresql@17
+brew services start redis
 export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"
 ```
 
@@ -73,7 +74,11 @@ src/
 │   ├── UrlController.*          POST /api/urls
 │   └── RedirectController.*     GET /{shortCode}
 ├── repositories/                all SQL lives here
-│   └── UrlRepository.*
+│   └── UrlRepository.*          (cache-aside: Redis, then Postgres)
+├── cache/
+│   └── UrlCache.*               Redis + circuit breaker
+├── models/
+│   └── UrlRecord.h
 └── utils/                       Config · ShortCode · UrlValidator · Http
 db/schema.sql
 ```
