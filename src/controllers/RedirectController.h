@@ -8,7 +8,7 @@ class RedirectController : public drogon::HttpController<RedirectController>
     // A regex route, so only plausible short codes match. This deliberately
     // cannot match "/api/..." because the pattern forbids a slash.
     ADD_METHOD_VIA_REGEX(RedirectController::redirect,
-                         "^/([0-9A-Za-z_-]{1,16})$", drogon::Get);
+                         "^/([0-9A-Za-z]{1,16})$", drogon::Get);
     METHOD_LIST_END
 
     void redirect(const drogon::HttpRequestPtr &req,

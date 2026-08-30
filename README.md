@@ -6,7 +6,7 @@ A production-style URL shortener backend built in C++.
 
 ## Status
 - [x] **Phase 1 — Drogon + PostgreSQL** (working)
-- [ ] Phase 2 — Base62
+- [x] **Phase 2 — Base62** (working)
 - [ ] Phase 3 — Redis
 - [ ] Phase 4 — Authentication
 - [ ] Phase 5 — Analytics
@@ -27,7 +27,7 @@ A production-style URL shortener backend built in C++.
 curl -X POST http://localhost:8080/api/urls \
      -H 'Content-Type: application/json' \
      -d '{"url":"https://example.com/a/very/long/url"}'
-# {"shortCode":"1","shortUrl":"http://localhost:8080/1"}
+# {"shortCode":"1000","shortUrl":"http://localhost:8080/1000"}
 ```
 
 ## Setup (macOS, Apple Silicon)

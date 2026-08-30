@@ -1,10 +1,12 @@
 #include "ShortCode.h"
 
+#include "Base62.h"
+
 namespace shortcode {
 
 std::string generate(long long id)
 {
-    return std::to_string(id);
+    return base62::encode(id);
 }
 
 }  // namespace shortcode
