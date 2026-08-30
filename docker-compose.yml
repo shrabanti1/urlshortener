@@ -1,0 +1,126 @@
+# Values like ${JWT_SECRET} are read from the host .env file, which is
+# gitignored. Secrets stay out of this file and out of the image.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      # Because POSTGRES_USER is the app's role, the init scripts run AS that
+      # role and it owns the tables and sequences it creates. This is the
+      # ownership problem from Phase 1, solved by construction.
+      POSTGRES_USER: ${DB_USER:-urlshortener}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      POSTGRES_DB: ${DB_NAME:-urlshortener}
+    volumes:
+      # Named volume: database files survive `docker compose down` and image
+      # rebuilds. Without it every restart would start from an empty database.
+      - postgres_data:/var/lib/postgresql/data
+      # Run once, on first initialisation of an empty data directory.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./db/migrations/002_users_and_ownership.sql:/docker-entrypoint-initdb.d/002_users.sql:ro
+      - ./db/migrations/003_click_events.sql:/docker-entrypoint-initdb.d/003_clicks.sql:ro
+    healthcheck:
+      # "Container started" is not "database ready to accept queries".
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-urlshortener} -d ${DB_NAME:-urlshortener}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks: [backend]
+
+  redis:
+    image: redis:7-alpine
+    # Cache data is disposable, so persistence is off and memory is bounded.
+    # allkeys-lru evicts the least recently used key when full, which is
+    # exactly right for a cache.
+    command: >
+      redis-server
+      --save ""
+      --appendonly no
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [backend]
+
+  app:
+    build:
+      context: .
+      target: runtime
+    environment:
+      # 0.0.0.0, not 127.0.0.1: inside a container, loopback is unreachable
+      # from other containers and from the host.
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8080
+      # Service names resolve via Docker's internal DNS.
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-urlshortener}
+      DB_USER: ${DB_USER:-urlshortener}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-8}
+      DB_TIMEOUT_SEC: 5
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_TTL_SECONDS: ${REDIS_TTL_SECONDS:-3600}
+      REDIS_TIMEOUT_SEC: 1
+      CACHE_ENABLED: "true"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_EXPIRY_MINUTES: ${JWT_EXPIRY_MINUTES:-60}
+      IP_HASH_SECRET: ${IP_HASH_SECRET:?IP_HASH_SECRET must be set}
+      # Separate from the host .env BASE_URL, which points at the local
+      # (non-Docker) run. Short URLs must reflect the port nginx publishes.
+      BASE_URL: ${BASE_URL_DOCKER:-http://localhost:${HTTP_PORT:-8081}}
+      ANALYTICS_ENABLED: "true"
+      ANALYTICS_MODE: async
+      # Safe to trust X-Forwarded-For here: only nginx can reach this port.
+      TRUST_PROXY_HEADERS: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      # service_healthy, not just service_started. Postgres accepts TCP
+      # connections seconds before it can answer queries; starting the app too
+      # early makes it crash-loop on boot.
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    # No ports: published. Only nginx may reach the app.
+    networks: [backend, frontend]
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks: [frontend]
+
+volumes:
+  postgres_data:
+
+networks:
+  # Two networks so postgres and redis are unreachable from nginx, and the
+  # database is never exposed to anything holding a published port.
+  frontend:
+  backend:

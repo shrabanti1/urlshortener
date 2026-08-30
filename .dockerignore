@@ -1,0 +1,7 @@
+build/
+.git/
+.env
+.DS_Store
+docs/
+*.md
+!README.md

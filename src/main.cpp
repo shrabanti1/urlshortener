@@ -3,6 +3,7 @@
 #include "utils/Config.h"
 #include "utils/Jwt.h"
 #include "utils/IpHash.h"
+#include "utils/Net.h"
 #include "utils/Password.h"
 
 int main()
@@ -65,7 +66,8 @@ int main()
     if (config::get("CACHE_ENABLED", "true") == "true")
     {
         drogon::app().createRedisClient(
-            config::get("REDIS_HOST", "127.0.0.1"),
+            // Must be an IP: see net::resolveToIp for why.
+            net::resolveToIp(config::get("REDIS_HOST", "127.0.0.1")),
             static_cast<unsigned short>(config::getInt("REDIS_PORT", 6379)),
             "default",
             config::get("REDIS_PASSWORD", ""),

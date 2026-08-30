@@ -11,7 +11,7 @@ A production-style URL shortener backend built in C++.
 - [x] **Phase 4 — Authentication** (working)
 - [x] **Phase 5 — Analytics** (working)
 - [x] **Phase 6 — Testing** (73 tests)
-- [ ] Phase 7 — Docker
+- [x] **Phase 7 — Docker** (working)
 - [ ] Phase 8 — Deployment
 
 ## API
@@ -72,6 +72,19 @@ Migrations:
 psql -d urlshortener -U urlshortener -f db/migrations/002_users_and_ownership.sql
 psql -d urlshortener -U urlshortener -f db/migrations/003_click_events.sql
 ```
+
+## Run with Docker
+
+```bash
+cp .env.example .env          # set DB_PASSWORD, JWT_SECRET, IP_HASH_SECRET
+docker compose up -d
+curl http://localhost:8081/health
+```
+
+Four services: nginx (published) -> app -> postgres + redis (internal only).
+Postgres data lives in a named volume and survives `docker compose down`.
+The first build compiles Drogon from source and takes 10-20 minutes; later
+builds reuse that layer.
 
 ## Tests
 
