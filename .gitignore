@@ -12,3 +12,6 @@ config.local.json
 # Editor
 .vscode/
 .idea/
+
+# Vendored test dependency downloaded by CMake FetchContent
+build/_deps/

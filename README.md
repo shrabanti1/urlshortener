@@ -10,7 +10,7 @@ A production-style URL shortener backend built in C++.
 - [x] **Phase 3 — Redis** (working)
 - [x] **Phase 4 — Authentication** (working)
 - [x] **Phase 5 — Analytics** (working)
-- [ ] Phase 6 — Testing
+- [x] **Phase 6 — Testing** (73 tests)
 - [ ] Phase 7 — Docker
 - [ ] Phase 8 — Deployment
 
@@ -73,6 +73,24 @@ psql -d urlshortener -U urlshortener -f db/migrations/002_users_and_ownership.sq
 psql -d urlshortener -U urlshortener -f db/migrations/003_click_events.sql
 ```
 
+## Tests
+
+```bash
+cmake --build build -j
+cd build && ctest --output-on-failure     # 73 tests
+ctest -L unit                             # 48 unit tests, no DB needed (~2s)
+ctest -L integration                      # 25 tests, needs Postgres + Redis
+```
+
+Integration tests run against a separate `urlshortener_test` database:
+
+```bash
+psql -d postgres -c "CREATE DATABASE urlshortener_test OWNER urlshortener;"
+for f in db/schema.sql db/migrations/*.sql; do
+  psql -d urlshortener_test -U urlshortener -f "$f"
+done
+```
+
 ## Build and run
 
 ```bash
@@ -98,6 +116,9 @@ src/
 ├── models/                      UrlRecord.h · User.h
 ├── filters/
 │   └── JwtAuthFilter.*          rejects unauthenticated requests
+tests/
+├── unit/                        pure functions, no I/O
+└── integration/                 real Postgres + Redis + HTTP
 └── utils/                       Config · ShortCode · UrlValidator · Http
                                  Password (Argon2id) · Jwt (HS256)
                                  IpHash (HMAC-SHA256)

@@ -25,8 +25,10 @@ void UrlRepository::insert(long long id,
                            ErrorCb onError) const
 {
     drogon::app().getDbClient()->execSqlAsync(
+        // NULLIF maps the "no owner" sentinel 0 to SQL NULL. Inserting a
+        // literal 0 would violate the users(id) foreign key.
         "INSERT INTO urls (id, original_url, short_code, user_id) "
-        "VALUES ($1, $2, $3, $4)",
+        "VALUES ($1, $2, $3, NULLIF($4::bigint, 0))",
         [onSuccess](const drogon::orm::Result &) { onSuccess(); },
         [onError](const drogon::orm::DrogonDbException &e)
         {
