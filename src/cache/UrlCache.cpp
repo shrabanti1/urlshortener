@@ -56,7 +56,7 @@ void recordSuccess()
 
 // Namespacing keys keeps this data distinguishable from anything else that
 // might share the Redis instance later (sessions, rate limits, ...).
-constexpr const char *kKeyPrefix = "url:";
+constexpr const char *kKeyPrefix = "url:v2:";
 
 int ttlSeconds()
 {
@@ -114,6 +114,7 @@ void UrlCache::get(const std::string &shortCode,
             UrlRecord rec;
             rec.id          = json.get("id", 0).asInt64();
             rec.originalUrl = json.get("originalUrl", "").asString();
+            rec.userId      = json.get("userId", 0).asInt64();
             rec.shortCode   = shortCode;
 
             if (rec.originalUrl.empty())
@@ -149,6 +150,9 @@ void UrlCache::put(const UrlRecord &record) const
     Json::Value json;
     json["id"]          = static_cast<Json::Int64>(record.id);
     json["originalUrl"] = record.originalUrl;
+    // Consumers do ownership checks on this, so it MUST be cached; a partial
+    // record made cache hits behave differently from cache misses.
+    json["userId"]      = static_cast<Json::Int64>(record.userId);
 
     Json::FastWriter writer;
     std::string payload = writer.write(json);

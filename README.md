@@ -9,7 +9,7 @@ A production-style URL shortener backend built in C++.
 - [x] **Phase 2 — Base62** (working)
 - [x] **Phase 3 — Redis** (working)
 - [x] **Phase 4 — Authentication** (working)
-- [ ] Phase 5 — Analytics
+- [x] **Phase 5 — Analytics** (working)
 - [ ] Phase 6 — Testing
 - [ ] Phase 7 — Docker
 - [ ] Phase 8 — Deployment
@@ -25,6 +25,7 @@ A production-style URL shortener backend built in C++.
 | POST   | `/api/urls` 🔒          | Create a short URL             | 201     |
 | GET    | `/api/urls` 🔒          | List your URLs (paginated)     | 200     |
 | DELETE | `/api/urls/{code}` 🔒   | Delete your URL                | 204/404 |
+| GET    | `/api/urls/{code}/stats` 🔒 | Click analytics for your URL | 200/404 |
 | GET    | `/{shortCode}`          | Redirect to the original URL   | 302/404 |
 
 🔒 = requires `Authorization: Bearer <token>`
@@ -69,6 +70,7 @@ Migrations:
 
 ```bash
 psql -d urlshortener -U urlshortener -f db/migrations/002_users_and_ownership.sql
+psql -d urlshortener -U urlshortener -f db/migrations/003_click_events.sql
 ```
 
 ## Build and run
@@ -88,7 +90,9 @@ src/
 │   ├── UrlController.*          POST /api/urls
 │   └── RedirectController.*     GET /{shortCode}
 ├── repositories/                all SQL lives here
-│   └── UrlRepository.*          (cache-aside: Redis, then Postgres)
+│   ├── UrlRepository.*          (cache-aside: Redis, then Postgres)
+│   ├── UserRepository.*
+│   └── AnalyticsRepository.*
 ├── cache/
 │   └── UrlCache.*               Redis + circuit breaker
 ├── models/                      UrlRecord.h · User.h
@@ -96,6 +100,7 @@ src/
 │   └── JwtAuthFilter.*          rejects unauthenticated requests
 └── utils/                       Config · ShortCode · UrlValidator · Http
                                  Password (Argon2id) · Jwt (HS256)
+                                 IpHash (HMAC-SHA256)
 third_party/jwt-cpp/             vendored, header-only
 db/schema.sql
 ```

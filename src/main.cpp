@@ -2,6 +2,7 @@
 
 #include "utils/Config.h"
 #include "utils/Jwt.h"
+#include "utils/IpHash.h"
 #include "utils/Password.h"
 
 int main()
@@ -26,6 +27,14 @@ int main()
     if (!jwt_util::validateSecretAtStartup(jwtProblem))
     {
         LOG_FATAL << "Refusing to start: " << jwtProblem
+                  << ". Generate one with: openssl rand -hex 32";
+        return 1;
+    }
+
+    std::string ipProblem;
+    if (!iphash::validateSecretAtStartup(ipProblem))
+    {
+        LOG_FATAL << "Refusing to start: " << ipProblem
                   << ". Generate one with: openssl rand -hex 32";
         return 1;
     }
