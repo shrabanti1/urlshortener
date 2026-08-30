@@ -107,3 +107,62 @@ std::optional<Claims> verifyAccessToken(const std::string &token)
 }
 
 }  // namespace jwt_util
+
+// ---------------------------------------------------------------------------
+// Refresh tokens
+// ---------------------------------------------------------------------------
+#include <openssl/rand.h>
+#include <openssl/sha.h>
+
+#include <cstdio>
+
+namespace refresh_token {
+
+namespace {
+constexpr size_t kTokenBytes = 32;  // 256 bits
+}
+
+std::string hash(const std::string &token)
+{
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+    ::SHA256(reinterpret_cast<const unsigned char *>(token.data()), token.size(),
+             digest);
+
+    std::string hex;
+    hex.reserve(SHA256_DIGEST_LENGTH * 2);
+    for (unsigned char c : digest)
+    {
+        char buf[3];
+        std::snprintf(buf, sizeof(buf), "%02x", c);
+        hex += buf;
+    }
+    return hex;
+}
+
+Issued mint()
+{
+    unsigned char raw[kTokenBytes];
+    if (::RAND_bytes(raw, sizeof(raw)) != 1)
+        throw std::runtime_error("RAND_bytes failed: no secure randomness");
+
+    std::string hex;
+    hex.reserve(kTokenBytes * 2);
+    for (unsigned char c : raw)
+    {
+        char buf[3];
+        std::snprintf(buf, sizeof(buf), "%02x", c);
+        hex += buf;
+    }
+
+    Issued out;
+    out.token = hex;
+    out.tokenHash = hash(hex);
+    return out;
+}
+
+int lifetimeDays()
+{
+    return config::getInt("REFRESH_TOKEN_DAYS", 30);
+}
+
+}  // namespace refresh_token

@@ -1,5 +1,6 @@
 #include "AuthController.h"
 
+#include "repositories/RefreshTokenRepository.h"
 #include "repositories/UserRepository.h"
 #include "utils/Config.h"
 #include "utils/Http.h"
@@ -54,23 +55,54 @@ drogon::HttpResponsePtr readCredentials(const drogon::HttpRequestPtr &req,
     return nullptr;
 }
 
-drogon::HttpResponsePtr tokenResponse(long long userId,
-                                      const std::string &email,
-                                      drogon::HttpStatusCode status)
+// Issues an access token plus a freshly stored refresh token, then answers.
+void respondWithTokens(long long userId,
+                       const std::string &email,
+                       drogon::HttpStatusCode status,
+                       std::function<void(const drogon::HttpResponsePtr &)> callback)
 {
-    Json::Value body;
-    body["accessToken"] = jwt_util::issueAccessToken(userId, email);
-    body["tokenType"]   = "Bearer";
-    body["expiresIn"]   = config::getInt("JWT_EXPIRY_MINUTES", 60) * 60;
+    static const RefreshTokenRepository tokens;
 
-    Json::Value user;
-    user["id"]    = static_cast<Json::Int64>(userId);
-    user["email"] = email;
-    body["user"]  = user;
+    const auto issued = refresh_token::mint();
 
-    auto resp = drogon::HttpResponse::newHttpJsonResponse(body);
-    resp->setStatusCode(status);
-    return resp;
+    tokens.store(
+        userId, issued.tokenHash, refresh_token::lifetimeDays(),
+        [callback, userId, email, status, plain = issued.token](long long)
+        {
+            Json::Value body;
+            body["accessToken"]  = jwt_util::issueAccessToken(userId, email);
+            body["tokenType"]    = "Bearer";
+            body["expiresIn"]    = config::getInt("JWT_EXPIRY_MINUTES", 60) * 60;
+            // Only ever sent here; the server keeps a SHA-256 of it.
+            body["refreshToken"] = plain;
+            body["refreshExpiresIn"] =
+                refresh_token::lifetimeDays() * 24 * 60 * 60;
+
+            Json::Value user;
+            user["id"]    = static_cast<Json::Int64>(userId);
+            user["email"] = email;
+            body["user"]  = user;
+
+            auto resp = drogon::HttpResponse::newHttpJsonResponse(body);
+            resp->setStatusCode(status);
+            callback(resp);
+        },
+        [callback](const std::string &err)
+        {
+            LOG_ERROR << "could not store refresh token: " << err;
+            callback(http_util::jsonError(drogon::k500InternalServerError,
+                                          "could not complete sign in"));
+        });
+}
+
+// Reads {"refreshToken": "..."} from the body.
+std::string readRefreshToken(const drogon::HttpRequestPtr &req)
+{
+    const auto json = req->getJsonObject();
+    if (!json || !json->isMember("refreshToken") ||
+        !(*json)["refreshToken"].isString())
+        return "";
+    return (*json)["refreshToken"].asString();
 }
 
 }  // namespace
@@ -104,7 +136,8 @@ void AuthController::_register(
                                               "email already registered"));
                 return;
             }
-            callback(tokenResponse(created->id, created->email, drogon::k201Created));
+            respondWithTokens(created->id, created->email, drogon::k201Created,
+                              callback);
         },
         [callback](const std::string &err)
         {
@@ -152,7 +185,7 @@ void AuthController::login(
                 return;
             }
 
-            callback(tokenResponse(user->id, user->email, drogon::k200OK));
+            respondWithTokens(user->id, user->email, drogon::k200OK, callback);
         },
         [callback](const std::string &err)
         {
@@ -160,4 +193,181 @@ void AuthController::login(
             callback(http_util::jsonError(drogon::k500InternalServerError,
                                           "could not sign in"));
         });
+}
+
+
+void AuthController::refresh(
+    const drogon::HttpRequestPtr &req,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback)
+{
+    static const RefreshTokenRepository tokens;
+    static const UserRepository users;
+
+    const std::string presented = readRefreshToken(req);
+    if (presented.empty())
+    {
+        callback(http_util::jsonError(drogon::k400BadRequest,
+                                      "field 'refreshToken' is required"));
+        return;
+    }
+
+    const std::string hash = refresh_token::hash(presented);
+
+    tokens.findByHash(
+        hash,
+        [callback, hash](std::optional<RefreshTokenRecord> record)
+        {
+            static const RefreshTokenRepository tokens;
+            static const UserRepository users;
+
+            // One message for unknown, expired and revoked, so a caller cannot
+            // probe which tokens ever existed.
+            auto reject = []
+            {
+                return http_util::jsonError(drogon::k401Unauthorized,
+                                            "invalid or expired refresh token");
+            };
+
+            if (!record || record->expired)
+            {
+                callback(reject());
+                return;
+            }
+
+            if (record->revoked)
+            {
+                // A token that was already rotated is being replayed. Either it
+                // leaked, or a client is retrying. Safest response is to revoke
+                // the whole family and force a fresh login.
+                LOG_WARN << "refresh token reuse detected for user "
+                         << record->userId << "; revoking all sessions";
+                tokens.revokeAllForUser(
+                    record->userId,
+                    [callback, reject](long long n)
+                    {
+                        LOG_WARN << "revoked " << n << " refresh tokens";
+                        callback(reject());
+                    },
+                    [callback, reject](const std::string &) { callback(reject()); });
+                return;
+            }
+
+            const long long userId = record->userId;
+            const long long oldId = record->id;
+
+            users.findById(
+                userId,
+                [callback, userId, oldId](std::optional<User> user)
+                {
+                    static const RefreshTokenRepository tokens;
+                    if (!user)
+                    {
+                        callback(http_util::jsonError(drogon::k401Unauthorized,
+                                                      "invalid or expired refresh token"));
+                        return;
+                    }
+
+                    // Rotation: mint a new refresh token and retire the old one.
+                    const auto issued = refresh_token::mint();
+                    tokens.store(
+                        userId, issued.tokenHash, refresh_token::lifetimeDays(),
+                        [callback, userId, oldId, email = user->email,
+                         plain = issued.token](long long newId)
+                        {
+                            static const RefreshTokenRepository tokens;
+                            tokens.revoke(
+                                oldId, newId,
+                                [callback, userId, email, plain]
+                                {
+                                    Json::Value body;
+                                    body["accessToken"] =
+                                        jwt_util::issueAccessToken(userId, email);
+                                    body["tokenType"] = "Bearer";
+                                    body["expiresIn"] =
+                                        config::getInt("JWT_EXPIRY_MINUTES", 60) * 60;
+                                    body["refreshToken"] = plain;
+                                    body["refreshExpiresIn"] =
+                                        refresh_token::lifetimeDays() * 24 * 60 * 60;
+                                    callback(
+                                        drogon::HttpResponse::newHttpJsonResponse(body));
+                                },
+                                [callback](const std::string &err)
+                                {
+                                    LOG_ERROR << "revoke failed: " << err;
+                                    callback(http_util::jsonError(
+                                        drogon::k500InternalServerError,
+                                        "could not refresh session"));
+                                });
+                        },
+                        [callback](const std::string &err)
+                        {
+                            LOG_ERROR << "store failed: " << err;
+                            callback(http_util::jsonError(
+                                drogon::k500InternalServerError,
+                                "could not refresh session"));
+                        });
+                },
+                [callback](const std::string &err)
+                {
+                    LOG_ERROR << "user lookup failed: " << err;
+                    callback(http_util::jsonError(drogon::k500InternalServerError,
+                                                  "could not refresh session"));
+                });
+        },
+        [callback](const std::string &err)
+        {
+            LOG_ERROR << "refresh lookup failed: " << err;
+            callback(http_util::jsonError(drogon::k500InternalServerError,
+                                          "could not refresh session"));
+        });
+}
+
+void AuthController::logout(
+    const drogon::HttpRequestPtr &req,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback)
+{
+    static const RefreshTokenRepository tokens;
+
+    const std::string presented = readRefreshToken(req);
+    if (presented.empty())
+    {
+        callback(http_util::jsonError(drogon::k400BadRequest,
+                                      "field 'refreshToken' is required"));
+        return;
+    }
+
+    // Logout is idempotent and always reports success: telling a caller that a
+    // token did not exist would leak information, and a client logging out
+    // twice is not an error.
+    auto done = [callback]
+    {
+        auto resp = drogon::HttpResponse::newHttpResponse();
+        resp->setStatusCode(drogon::k204NoContent);
+        callback(resp);
+    };
+
+    const bool everywhere = [&]
+    {
+        const auto json = req->getJsonObject();
+        return json && (*json)["allDevices"].isBool() &&
+               (*json)["allDevices"].asBool();
+    }();
+
+    tokens.findByHash(
+        refresh_token::hash(presented),
+        [done, everywhere](std::optional<RefreshTokenRecord> record)
+        {
+            static const RefreshTokenRepository tokens;
+            if (!record) { done(); return; }
+
+            if (everywhere)
+            {
+                tokens.revokeAllForUser(
+                    record->userId, [done](long long) { done(); },
+                    [done](const std::string &) { done(); });
+                return;
+            }
+            tokens.revoke(record->id, 0, done, [done](const std::string &) { done(); });
+        },
+        [done](const std::string &) { done(); });
 }

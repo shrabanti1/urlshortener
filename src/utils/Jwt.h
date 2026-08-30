@@ -21,3 +21,23 @@ std::optional<Claims> verifyAccessToken(const std::string &token);
 bool validateSecretAtStartup(std::string &problemOut);
 
 }  // namespace jwt_util
+
+namespace refresh_token {
+
+// A refresh token is opaque random bytes, not a JWT: it carries no claims and
+// is only ever compared against a stored hash.
+struct Issued
+{
+    std::string token;      // give to the client, never store
+    std::string tokenHash;  // store this
+};
+
+Issued mint();
+
+// SHA-256 hex. Fast on purpose: unlike a password this is 256 bits of
+// randomness, so there is nothing to brute-force and no need for Argon2's cost.
+std::string hash(const std::string &token);
+
+int lifetimeDays();
+
+}  // namespace refresh_token

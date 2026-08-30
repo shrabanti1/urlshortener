@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <thread>
 
+#include "cache/RedisPool.h"
+#include "services/ClickBatcher.h"
 #include "utils/Password.h"
 
 namespace {
@@ -27,6 +29,10 @@ void setTestEnvironment()
     ::setenv("IP_HASH_SECRET", "integration-test-ip-secret-0123456789", 1);
     ::setenv("BASE_URL", "http://127.0.0.1:18080", 1);
     ::setenv("ANALYTICS_MODE", "sync", 1);  // deterministic: no race in assertions
+    ::setenv("ANALYTICS_BATCH", "false", 1);
+    ::setenv("SHORTCODE_PERMUTE", "false", 1);  // tests assert on exact codes
+    ::setenv("JWT_EXPIRY_MINUTES", "60", 1);
+    ::setenv("REFRESH_TOKEN_DAYS", "30", 1);
 }
 
 }  // namespace
@@ -59,8 +65,7 @@ void startOnce()
             db.autoBatch        = false;
             drogon::app().addDbClient(db);
 
-            drogon::app().createRedisClient("127.0.0.1", 6379, "default", "", 2,
-                                            false, 1.0);
+            RedisPool::instance().start();
 
             drogon::app().setLogLevel(trantor::Logger::kWarn);
             drogon::app().addListener("127.0.0.1", kPort).setThreadNum(2).run();
@@ -82,7 +87,8 @@ void stop()
 void resetDatabase()
 {
     auto db = drogon::app().getDbClient();
-    db->execSqlSync("TRUNCATE click_events, urls, users RESTART IDENTITY CASCADE");
+    db->execSqlSync(
+        "TRUNCATE click_events, refresh_tokens, urls, users RESTART IDENTITY CASCADE");
     db->execSqlSync("ALTER SEQUENCE urls_id_seq RESTART WITH 238328");
 }
 
@@ -90,7 +96,7 @@ void flushCache()
 {
     try
     {
-        auto redis = drogon::app().getRedisClient();
+        auto redis = RedisPool::instance().get();
         if (redis) redis->execCommandSync<int>(
             [](const drogon::nosql::RedisResult &) { return 0; }, "FLUSHDB");
     }

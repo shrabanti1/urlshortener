@@ -1,6 +1,7 @@
 #include "RedirectController.h"
 
 #include "repositories/AnalyticsRepository.h"
+#include "services/ClickBatcher.h"
 #include "repositories/UrlRepository.h"
 #include "utils/Config.h"
 #include "utils/IpHash.h"
@@ -91,10 +92,13 @@ void RedirectController::redirect(
             }
 
             // ---- async (default) ---------------------------------------
-            // Send the redirect FIRST, then write. The user never waits for
-            // an analytics row.
+            // Send the redirect FIRST, then record. The user never waits.
             callback(redirectResp);
-            analytics.recordClick(ev);
+
+            if (config::get("ANALYTICS_BATCH", "true") == "true")
+                ClickBatcher::instance().add(ev);   // one INSERT per N events
+            else
+                analytics.recordClick(ev);          // one INSERT per click
         },
         [callback](const std::string &err)
         {

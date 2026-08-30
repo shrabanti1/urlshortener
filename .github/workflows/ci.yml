@@ -1,0 +1,200 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes an in-flight run on the same branch.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+
+    # Real PostgreSQL and Redis, so the integration tests are the same ones
+    # that run locally. Health checks keep the job from starting too early --
+    # "container started" is not "ready to accept queries".
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: urlshortener
+          POSTGRES_PASSWORD: devpassword
+          POSTGRES_DB: urlshortener_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U urlshortener -d urlshortener_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake git pkg-config \
+            libjsoncpp-dev uuid-dev zlib1g-dev libssl-dev \
+            libpq-dev libhiredis-dev libbrotli-dev libsodium-dev \
+            postgresql-client
+
+      # Drogon takes ~15 minutes to compile, so it is cached on the pinned
+      # version. Without this every run would be dominated by it.
+      - name: Cache Drogon
+        id: drogon-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local
+          key: drogon-v1.9.13-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+
+      - name: Build Drogon
+        if: steps.drogon-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch v1.9.13 \
+            https://github.com/drogonframework/drogon.git /tmp/drogon
+          cd /tmp/drogon
+          git submodule update --init --recursive --depth 1
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$HOME/.local" \
+            -DBUILD_SHARED_LIBS=ON -DBUILD_EXAMPLES=OFF -DBUILD_CTL=OFF \
+            -DBUILD_ORM=ON -DBUILD_POSTGRESQL=ON -DBUILD_REDIS=ON \
+            -DBUILD_MYSQL=OFF
+          cmake --build build -j"$(nproc)"
+          cmake --install build
+
+      # The Homebrew/apt trap from setup, as a CI gate: a Drogon without libpq
+      # compiles fine and fails at runtime.
+      - name: Verify Drogon linked the database backends
+        run: |
+          ldd "$HOME/.local/lib/libdrogon.so" | grep -q libpq
+          ldd "$HOME/.local/lib/libdrogon.so" | grep -q hiredis
+          echo "drogon links libpq and hiredis"
+
+      - name: Prepare the test database
+        env:
+          PGPASSWORD: devpassword
+        run: |
+          for f in db/schema.sql db/migrations/*.sql; do
+            psql -h localhost -U urlshortener -d urlshortener_test -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Unit tests
+        working-directory: build
+        run: ctest -L unit --output-on-failure
+
+      - name: Integration tests
+        working-directory: build
+        run: ctest -L integration --output-on-failure
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Proves the image builds and that the runtime stage is self-contained.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: urlshortener:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the stack
+        run: |
+          cp .env.example .env
+          {
+            echo "DB_PASSWORD=ci-test-password"
+            echo "JWT_SECRET=$(openssl rand -hex 32)"
+            echo "IP_HASH_SECRET=$(openssl rand -hex 32)"
+          } >> .env
+          docker compose up -d
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:8081/health && break
+            sleep 3
+          done
+          curl -fsS http://localhost:8081/health | tee /dev/stderr | grep -q '"status":"ok"'
+          TOKEN=$(curl -sS -X POST http://localhost:8081/api/auth/register \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"correct-horse-battery"}' \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["accessToken"])')
+          CODE=$(curl -sS -X POST http://localhost:8081/api/urls \
+            -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+            -d '{"url":"https://example.com/ci"}' \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["shortCode"])')
+          curl -sS -o /dev/null -w '%{http_code}' "http://localhost:8081/$CODE" | grep -q 302
+          echo "smoke test passed"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --tail 100
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  lint:
+    name: Static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate the OpenAPI spec
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import sys, yaml
+          spec = yaml.safe_load(open("docs/openapi.yaml"))
+          assert spec["openapi"].startswith("3."), "not OpenAPI 3"
+          for path, ops in spec["paths"].items():
+              for method, op in ops.items():
+                  assert "responses" in op, f"{method.upper()} {path} has no responses"
+          print(f"openapi ok: {len(spec['paths'])} paths")
+          PY
+
+      - name: Validate compose files
+        run: |
+          export DOMAIN=example.com DB_PASSWORD=x JWT_SECRET=y IP_HASH_SECRET=z
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+          echo "compose files valid"
+
+      - name: Check no secrets are committed
+        run: |
+          if git ls-files | grep -qx '.env'; then
+            echo "ERROR: .env is tracked by git" >&2
+            exit 1
+          fi
+          echo "no .env in the repository"

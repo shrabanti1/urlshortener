@@ -19,6 +19,7 @@ services:
       - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
       - ./db/migrations/002_users_and_ownership.sql:/docker-entrypoint-initdb.d/002_users.sql:ro
       - ./db/migrations/003_click_events.sql:/docker-entrypoint-initdb.d/003_clicks.sql:ro
+      - ./db/migrations/004_refresh_tokens.sql:/docker-entrypoint-initdb.d/004_refresh.sql:ro
     healthcheck:
       # "Container started" is not "database ready to accept queries".
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-urlshortener} -d ${DB_NAME:-urlshortener}"]
@@ -69,15 +70,24 @@ services:
       REDIS_PORT: 6379
       REDIS_TTL_SECONDS: ${REDIS_TTL_SECONDS:-3600}
       REDIS_TIMEOUT_SEC: 1
+      # Re-resolve REDIS_HOST periodically: a restarted Redis container often
+      # comes back on a different IP.
+      REDIS_RESOLVE_INTERVAL_SEC: ${REDIS_RESOLVE_INTERVAL_SEC:-30}
       CACHE_ENABLED: "true"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
-      JWT_EXPIRY_MINUTES: ${JWT_EXPIRY_MINUTES:-60}
+      JWT_EXPIRY_MINUTES: ${JWT_EXPIRY_MINUTES:-15}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-30}
       IP_HASH_SECRET: ${IP_HASH_SECRET:?IP_HASH_SECRET must be set}
       # Separate from the host .env BASE_URL, which points at the local
       # (non-Docker) run. Short URLs must reflect the port nginx publishes.
       BASE_URL: ${BASE_URL_DOCKER:-http://localhost:${HTTP_PORT:-8081}}
       ANALYTICS_ENABLED: "true"
       ANALYTICS_MODE: async
+      # Batch click inserts: one statement per N events instead of per click.
+      ANALYTICS_BATCH: "true"
+      ANALYTICS_BATCH_SIZE: ${ANALYTICS_BATCH_SIZE:-100}
+      ANALYTICS_FLUSH_MS: ${ANALYTICS_FLUSH_MS:-1000}
+      SHORTCODE_PERMUTE: ${SHORTCODE_PERMUTE:-true}
       # Safe to trust X-Forwarded-For here: only nginx can reach this port.
       TRUST_PROXY_HEADERS: "true"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

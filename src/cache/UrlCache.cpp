@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 
+#include "RedisPool.h"
 #include "utils/Config.h"
 
 namespace {
@@ -73,15 +74,7 @@ std::string UrlCache::key(const std::string &shortCode)
 void UrlCache::get(const std::string &shortCode,
                    std::function<void(std::optional<UrlRecord>)> onResult) const
 {
-    drogon::nosql::RedisClientPtr redis;
-    try
-    {
-        redis = drogon::app().getRedisClient();
-    }
-    catch (...)
-    {
-        redis = nullptr;
-    }
+    auto redis = RedisPool::instance().get();
 
     if (!redis || circuitOpen())
     {
@@ -128,6 +121,9 @@ void UrlCache::get(const std::string &shortCode,
         {
             // Redis is down. Log it and fall through to PostgreSQL.
             recordFailure();
+            // A changed container IP looks exactly like a dead Redis, so give
+            // the pool a chance to notice and reconnect.
+            RedisPool::instance().notifyFailure();
             LOG_WARN << "redis GET failed for " << shortCode << ": " << e.what();
             onResult(std::nullopt);
         },
@@ -136,15 +132,7 @@ void UrlCache::get(const std::string &shortCode,
 
 void UrlCache::put(const UrlRecord &record) const
 {
-    drogon::nosql::RedisClientPtr redis;
-    try
-    {
-        redis = drogon::app().getRedisClient();
-    }
-    catch (...)
-    {
-        return;
-    }
+    auto redis = RedisPool::instance().get();
     if (!redis || circuitOpen()) return;
 
     Json::Value json;
@@ -173,15 +161,7 @@ void UrlCache::put(const UrlRecord &record) const
 
 void UrlCache::invalidate(const std::string &shortCode) const
 {
-    drogon::nosql::RedisClientPtr redis;
-    try
-    {
-        redis = drogon::app().getRedisClient();
-    }
-    catch (...)
-    {
-        return;
-    }
+    auto redis = RedisPool::instance().get();
     if (!redis) return;
 
     const std::string k = key(shortCode);

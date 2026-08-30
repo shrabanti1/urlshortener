@@ -89,6 +89,8 @@ Adding Redis in Phase 3 required **no controller changes at all**.
 | GET | `/health` | Liveness + real DB round trip | 200/503 |
 | POST | `/api/auth/register` | Create account, returns JWT | 201/409 |
 | POST | `/api/auth/login` | Exchange credentials for JWT | 200/401 |
+| POST | `/api/auth/refresh` | Rotate refresh token, new access token | 200/401 |
+| POST | `/api/auth/logout` | Revoke a refresh token (or all) | 204 |
 | POST | `/api/urls` 🔒 | Create a short URL | 201 |
 | GET | `/api/urls` 🔒 | List your URLs (paginated) | 200 |
 | DELETE | `/api/urls/{code}` 🔒 | Delete your URL | 204/404 |
@@ -187,9 +189,9 @@ cmake -S . -B build && cmake --build build -j
 
 ```bash
 cd build
-ctest --output-on-failure     # 73 tests
-ctest -L unit                 # 48 unit tests, no dependencies (~2s)
-ctest -L integration          # 25 tests, needs Postgres + Redis
+ctest --output-on-failure     # 104 tests
+ctest -L unit                 # 62 unit tests, no dependencies (~3s)
+ctest -L integration          # 42 tests, needs Postgres + Redis
 ```
 
 Integration tests use a separate database so they can truncate freely:
@@ -203,18 +205,20 @@ done
 
 | Suite | Count | Covers |
 |---|---|---|
-| Unit | 48 | Base62 (150k round-trips, injectivity, overflow), URL validation, JWT (`alg:none`, tampering, expiry, foreign secrets), Argon2id, IP hashing |
-| Integration | 25 | Repositories against real Postgres/Redis, cache-hit vs cache-miss equivalence, full HTTP journey, cross-user authorization |
+| Unit | 62 | Base62 (150k round-trips, injectivity, overflow), short-code permutation (bijectivity, non-adjacency), URL validation, JWT (`alg:none`, tampering, expiry, foreign secrets), Argon2id, IP hashing, refresh-token minting |
+| Integration | 42 | Repositories against real Postgres/Redis, cache-hit vs cache-miss equivalence, full HTTP journey, cross-user authorization, refresh rotation and replay detection, click batching (escaping, concurrency, partial flush) |
 
 ---
 
 ## Design decisions
 
-**Base62 over database ids.** `encode(238328) = "1000"`. A bijection, so distinct
-ids can never collide — uniqueness comes from `nextval()`, which is atomic. No
-collision-retry loop. The tradeoff is that sequential ids are enumerable; the
-mitigation would be permuting the id before encoding (a bijection preserves the
-no-collision property).
+**Permuted ids, then Base62.** The id is multiplied by a fixed constant modulo
+62^6 before encoding. That is a bijection (the multiplier is coprime to the
+modulus), so distinct ids still give distinct codes — no collision checks, no
+retry loop — but consecutive ids scatter, so the code space cannot be walked.
+Codes are a fixed 6 characters. `SHORTCODE_PERMUTE=false` restores plain Base62;
+existing rows keep working either way because `short_code` is stored, not
+recomputed.
 
 **302, not 301.** A permanent redirect is cached by browsers indefinitely, which
 would break click analytics and make a URL impossible to change or delete. The
@@ -224,6 +228,17 @@ cost — every click hits the server — is what Redis is for.
 can always be rebuilt from Postgres. With `CACHE_ENABLED=false` redirects still
 serve in ~2.7 ms. A 1 s client timeout plus a circuit breaker (3 failures → skip
 Redis for 10 s) means a dead cache costs ~0.6 ms, not a 15 s hang.
+
+**Short-lived access tokens plus revocable refresh tokens.** A JWT is stateless
+and cannot be revoked, so access tokens last 15 minutes and a refresh token
+(opaque 256-bit, stored only as a SHA-256) is exchanged at `/api/auth/refresh`.
+Refresh tokens rotate on every use; replaying an already-rotated token is
+treated as theft and revokes every session for that user.
+
+**Click writes are batched.** Events buffer in memory and go out as a single
+multi-row `INSERT` (via `UNNEST`) every 100 events or 1 second, whichever comes
+first. One statement per click is the first thing to break under load. The
+buffer is flushed on `SIGTERM` so a normal restart loses nothing.
 
 **Analytics written after the response.** Measured over 400 requests:
 
@@ -272,9 +287,12 @@ src/
 ├── controllers/          HealthController · UrlController · AuthController · AnalyticsController
 ├── filters/              JwtAuthFilter
 ├── repositories/         UrlRepository · UserRepository · AnalyticsRepository
+│                         RefreshTokenRepository
+├── services/             ClickBatcher
 ├── cache/                UrlCache (Redis + circuit breaker)
 ├── models/               UrlRecord · User · ClickEvent
 └── utils/                Config · Base62 · ShortCode · UrlValidator · Password · Jwt · IpHash · Net
+.github/workflows/ci.yml  build + tests + docker smoke test + spec/compose lint
 tests/
 ├── unit/                 no I/O
 └── integration/          real Postgres + Redis + HTTP
@@ -305,6 +323,13 @@ override it with no code change.
 | `REDIS_BREAKER_FAILURES` | `3` | failures before bypassing the cache |
 | `CACHE_ENABLED` | `true` | `false` serves entirely from Postgres |
 | `JWT_SECRET` | — | ≥32 chars; app refuses to start otherwise |
+| `JWT_EXPIRY_MINUTES` | `15` | access token lifetime |
+| `REFRESH_TOKEN_DAYS` | `30` | refresh token lifetime |
+| `SHORTCODE_PERMUTE` | `true` | `false` gives plain sequential Base62 |
+| `ANALYTICS_BATCH` | `true` | batch click inserts |
+| `ANALYTICS_BATCH_SIZE` | `100` | events per flush |
+| `ANALYTICS_FLUSH_MS` | `1000` | max time an event waits in the buffer |
+| `REDIS_RESOLVE_INTERVAL_SEC` | `30` | how often REDIS_HOST is re-resolved |
 | `IP_HASH_SECRET` | — | rotating it invalidates historical unique counts |
 | `ANALYTICS_MODE` | `async` | `sync` only for deterministic tests |
 | `TRUST_PROXY_HEADERS` | `false` | `true` only behind a proxy that overwrites XFF |

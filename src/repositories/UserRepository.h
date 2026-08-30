@@ -21,4 +21,8 @@ class UserRepository
     void findByEmail(const std::string &email,
                      std::function<void(std::optional<User>)> onSuccess,
                      ErrorCb onError) const;
+
+    void findById(long long id,
+                  std::function<void(std::optional<User>)> onSuccess,
+                  ErrorCb onError) const;
 };

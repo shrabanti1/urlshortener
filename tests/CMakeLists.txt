@@ -17,6 +17,8 @@ add_executable(unit_tests
     unit/test_jwt.cpp
     unit/test_password.cpp
     unit/test_ip_hash.cpp
+    unit/test_shortcode.cpp
+    unit/test_refresh_token.cpp
 )
 target_link_libraries(unit_tests PRIVATE app_objects GTest::gtest_main)
 gtest_discover_tests(unit_tests PROPERTIES LABELS "unit")
@@ -26,6 +28,8 @@ add_executable(integration_tests
     integration/main.cpp
     integration/test_repositories.cpp
     integration/test_api_flow.cpp
+    integration/test_auth_refresh.cpp
+    integration/test_click_batcher.cpp
     integration/TestEnv.cpp
 )
 target_link_libraries(integration_tests PRIVATE app_objects GTest::gtest)

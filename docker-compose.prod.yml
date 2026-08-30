@@ -32,6 +32,8 @@ services:
       # Shorter tokens in production: a JWT cannot be revoked, so the expiry
       # window is the whole blast radius of a stolen token.
       JWT_EXPIRY_MINUTES: ${JWT_EXPIRY_MINUTES:-30}
+    # Give the app time to flush buffered click events on SIGTERM.
+    stop_grace_period: 20s
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }

@@ -1,13 +1,29 @@
 #include <drogon/drogon.h>
 
+#include <cstdio>
+
 #include "utils/Config.h"
 #include "utils/Jwt.h"
 #include "utils/IpHash.h"
 #include "utils/Net.h"
+#include "cache/RedisPool.h"
+#include "services/ClickBatcher.h"
+#include "utils/ShortCode.h"
 #include "utils/Password.h"
 
 int main()
 {
+    // Line-buffer stdout.
+    //
+    // When stdout is a pipe -- which it always is under `docker compose up -d`,
+    // systemd, or any log collector -- libc switches from line buffering to
+    // FULL buffering. A few hundred bytes of start-up logs then sit in the 4 KB
+    // buffer and never reach `docker logs` until enough further output fills
+    // it. On a healthy, quiet service that can be hours.
+    //
+    // This must happen before anything writes to stdout.
+    ::setvbuf(stdout, nullptr, _IOLBF, 0);
+
     config::loadDotEnv();
 
     // LOG_LEVEL=DEBUG surfaces the cache HIT/MISS lines.
@@ -40,6 +56,13 @@ int main()
         return 1;
     }
 
+    std::string codeProblem;
+    if (!shortcode::selfTest(codeProblem))
+    {
+        LOG_FATAL << "Refusing to start: " << codeProblem;
+        return 1;
+    }
+
     const std::string appHost = config::get("APP_HOST", "127.0.0.1");
     const int appPort = config::getInt("APP_PORT", 8080);
 
@@ -63,31 +86,35 @@ int main()
 
     // Redis is optional. If it cannot be reached the app still works; every
     // lookup simply falls through to PostgreSQL.
-    if (config::get("CACHE_ENABLED", "true") == "true")
-    {
-        drogon::app().createRedisClient(
-            // Must be an IP: see net::resolveToIp for why.
-            net::resolveToIp(config::get("REDIS_HOST", "127.0.0.1")),
-            static_cast<unsigned short>(config::getInt("REDIS_PORT", 6379)),
-            "default",
-            config::get("REDIS_PASSWORD", ""),
-            static_cast<size_t>(config::getInt("REDIS_POOL_SIZE", 4)),
-            /*isFast=*/false,
-            // Without a timeout, commands queue forever when Redis is
-            // unreachable and the HTTP request hangs instead of falling
-            // back to PostgreSQL.
-            /*timeout=*/static_cast<double>(config::getInt("REDIS_TIMEOUT_SEC", 1)));
-        LOG_INFO << "Redis cache enabled";
-    }
-    else
-    {
-        LOG_INFO << "Redis cache disabled (CACHE_ENABLED=false)";
-    }
+    RedisPool::instance().start();
+
 
     // Routes live in src/controllers/*. Drogon discovers them automatically,
     // which also makes them reachable from the test binary.
 
     LOG_INFO << "URL Shortener listening on http://" << appHost << ":" << appPort;
+
+    // Timers need a running loop, so this is queued rather than called now.
+    drogon::app().getLoop()->queueInLoop(
+        []
+        {
+            if (config::get("ANALYTICS_BATCH", "true") == "true" &&
+                config::get("ANALYTICS_MODE", "async") != "sync")
+                ClickBatcher::instance().start();
+            RedisPool::instance().startWatchdog();
+        });
+
+    // Flush buffered clicks instead of dropping them on shutdown. Drogon's
+    // default handlers just call quit(), which would discard the buffer.
+    auto gracefulShutdown = []
+    {
+        LOG_INFO << "shutting down: flushing buffered click events";
+        ClickBatcher::instance().stop();
+        RedisPool::instance().stop();
+        drogon::app().quit();
+    };
+    drogon::app().setTermSignalHandler(gracefulShutdown);
+    drogon::app().setIntSignalHandler(gracefulShutdown);
 
     drogon::app()
         .addListener(appHost, appPort)

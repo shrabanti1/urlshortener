@@ -5,8 +5,10 @@ info:
   description: |
     A URL shortener built in C++ with Drogon, PostgreSQL and Redis.
 
-    Short codes are Base62 encodings of the database id, so they are unique by
-    construction and never collide.
+    Short codes are produced by permuting the database id (multiplication modulo
+    62^6, a bijection) and then Base62-encoding it. Distinct ids therefore always
+    produce distinct 6-character codes, with no collision checks, while
+    consecutive ids are scattered so the code space cannot be enumerated.
 
     Redirects are `302 Found`, not `301`. A permanent redirect would be cached
     by browsers indefinitely, which would break click analytics and make a URL
@@ -69,14 +71,27 @@ components:
       properties:
         accessToken:
           type: string
+          description: Short-lived JWT. Stateless, so it cannot be revoked.
           example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
         tokenType:
           type: string
           example: Bearer
         expiresIn:
           type: integer
-          description: Seconds until the token expires
-          example: 3600
+          description: Seconds until the access token expires
+          example: 900
+        refreshToken:
+          type: string
+          description: |
+            Opaque 256-bit token, returned only here. The server stores only a
+            SHA-256 of it. Exchange it at `/api/auth/refresh`; it is rotated on
+            every use, and replaying a rotated token revokes every session for
+            that user.
+          example: 3a9dba9e8336de75c1f0...
+        refreshExpiresIn:
+          type: integer
+          description: Seconds until the refresh token expires
+          example: 2592000
         user:
           type: object
           properties:
@@ -241,6 +256,62 @@ paths:
             application/json:
               example: { error: invalid email or password }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new access token
+      description: |
+        Rotates the refresh token: the presented token is revoked and a new one
+        is returned. Replaying an already-rotated token is treated as theft and
+        revokes every session belonging to that user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: New access and refresh tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: |
+            Unknown, expired, revoked, or already-rotated token. The same
+            response is returned for all cases.
+          content:
+            application/json:
+              example: { error: invalid or expired refresh token }
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke a refresh token
+      description: |
+        Idempotent, and always returns 204 even for an unknown token, so it
+        cannot be used to probe which tokens exist. Pass `allDevices: true` to
+        revoke every session for the user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+                allDevices:
+                  type: boolean
+                  default: false
+      responses:
+        '204': { description: Revoked }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /api/urls:
     post:

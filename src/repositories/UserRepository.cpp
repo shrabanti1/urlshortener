@@ -53,3 +53,23 @@ void UserRepository::findByEmail(const std::string &email,
         { onError(e.base().what()); },
         email);
 }
+
+void UserRepository::findById(long long id,
+                              std::function<void(std::optional<User>)> onSuccess,
+                              ErrorCb onError) const
+{
+    drogon::app().getDbClient()->execSqlAsync(
+        "SELECT id, email, password_hash FROM users WHERE id = $1",
+        [onSuccess](const drogon::orm::Result &r)
+        {
+            if (r.empty()) { onSuccess(std::nullopt); return; }
+            User u;
+            u.id           = r[0]["id"].as<long long>();
+            u.email        = r[0]["email"].as<std::string>();
+            u.passwordHash = r[0]["password_hash"].as<std::string>();
+            onSuccess(u);
+        },
+        [onError](const drogon::orm::DrogonDbException &e)
+        { onError(e.base().what()); },
+        id);
+}
