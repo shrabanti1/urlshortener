@@ -1,0 +1,87 @@
+# Production overlay. Use together with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from development:
+#   - nginx terminates TLS on 80/443 instead of publishing 8081
+#   - certbot renews certificates automatically
+#   - log rotation is bounded so disks cannot fill
+#   - postgres is tuned slightly and never exposed
+
+services:
+  postgres:
+    # No ports: ever. The database is reachable only on the backend network.
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=256MB
+
+  redis:
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  app:
+    environment:
+      BASE_URL: https://${DOMAIN:?DOMAIN must be set}
+      LOG_LEVEL: INFO
+      # Shorter tokens in production: a JWT cannot be revoked, so the expiry
+      # window is the whole blast radius of a stolen token.
+      JWT_EXPIRY_MINUTES: ${JWT_EXPIRY_MINUTES:-30}
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    deploy:
+      resources:
+        limits: { memory: 512M }
+
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # envsubst is not available, so the template is rendered at start-up by
+      # substituting ${DOMAIN}. See the command below.
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.template.conf:ro
+      - certbot_conf:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN must be set}
+    command: >
+      /bin/sh -c "
+        envsubst '$$DOMAIN' < /etc/nginx/nginx.template.conf > /etc/nginx/nginx.conf &&
+        nginx -t &&
+        while :; do sleep 12h & wait $${!}; nginx -s reload; done & 
+        nginx -g 'daemon off;'
+      "
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Not exposed in production: the spec documents auth endpoints and rate
+  # limits, and an unauthenticated docs UI is needless attack surface.
+  swagger:
+    profiles: ["disabled"]
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # Wakes twice a day and renews anything within 30 days of expiry.
+    # Let's Encrypt certificates last 90 days, so this has wide margin.
+    entrypoint: >
+      /bin/sh -c "
+        trap exit TERM;
+        while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done
+      "
+    networks: [frontend]
+    restart: unless-stopped
+
+volumes:
+  certbot_conf:
+  certbot_www:
