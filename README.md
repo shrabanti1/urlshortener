@@ -8,7 +8,7 @@ A production-style URL shortener backend built in C++.
 - [x] **Phase 1 — Drogon + PostgreSQL** (working)
 - [x] **Phase 2 — Base62** (working)
 - [x] **Phase 3 — Redis** (working)
-- [ ] Phase 4 — Authentication
+- [x] **Phase 4 — Authentication** (working)
 - [ ] Phase 5 — Analytics
 - [ ] Phase 6 — Testing
 - [ ] Phase 7 — Docker
@@ -18,10 +18,16 @@ A production-style URL shortener backend built in C++.
 
 | Method | Path             | Purpose                        | Success |
 |--------|------------------|--------------------------------|---------|
-| GET    | `/`              | Service name                   | 200     |
-| GET    | `/health`        | Liveness + database round trip | 200/503 |
-| POST   | `/api/urls`      | Create a short URL             | 201     |
-| GET    | `/{shortCode}`   | Redirect to the original URL   | 302/404 |
+| GET    | `/`                     | Service name                   | 200     |
+| GET    | `/health`               | Liveness + database round trip | 200/503 |
+| POST   | `/api/auth/register`    | Create an account, returns JWT | 201/409 |
+| POST   | `/api/auth/login`       | Exchange credentials for a JWT | 200/401 |
+| POST   | `/api/urls` 🔒          | Create a short URL             | 201     |
+| GET    | `/api/urls` 🔒          | List your URLs (paginated)     | 200     |
+| DELETE | `/api/urls/{code}` 🔒   | Delete your URL                | 204/404 |
+| GET    | `/{shortCode}`          | Redirect to the original URL   | 302/404 |
+
+🔒 = requires `Authorization: Bearer <token>`
 
 ```bash
 curl -X POST http://localhost:8080/api/urls \
@@ -37,7 +43,7 @@ PostgreSQL support (it declares no libpq dependency, so the backend is silently
 excluded). Verify any Drogon build with `otool -L .../libdrogon.dylib | grep pq`.
 
 ```bash
-brew install cmake postgresql@17 jsoncpp c-ares brotli openssl@3 hiredis redis
+brew install cmake postgresql@17 jsoncpp c-ares brotli openssl@3 hiredis redis libsodium
 brew services start postgresql@17
 brew services start redis
 export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"
@@ -54,7 +60,15 @@ psql -d urlshortener -U urlshortener -f db/schema.sql
 Configuration:
 
 ```bash
-cp .env.example .env   # then edit; .env is gitignored
+cp .env.example .env
+# JWT_SECRET must be >= 32 chars of real randomness; the app refuses to start otherwise
+openssl rand -hex 32
+```
+
+Migrations:
+
+```bash
+psql -d urlshortener -U urlshortener -f db/migrations/002_users_and_ownership.sql
 ```
 
 ## Build and run
@@ -77,8 +91,11 @@ src/
 │   └── UrlRepository.*          (cache-aside: Redis, then Postgres)
 ├── cache/
 │   └── UrlCache.*               Redis + circuit breaker
-├── models/
-│   └── UrlRecord.h
+├── models/                      UrlRecord.h · User.h
+├── filters/
+│   └── JwtAuthFilter.*          rejects unauthenticated requests
 └── utils/                       Config · ShortCode · UrlValidator · Http
+                                 Password (Argon2id) · Jwt (HS256)
+third_party/jwt-cpp/             vendored, header-only
 db/schema.sql
 ```

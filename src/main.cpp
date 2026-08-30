@@ -1,6 +1,8 @@
 #include <drogon/drogon.h>
 
 #include "utils/Config.h"
+#include "utils/Jwt.h"
+#include "utils/Password.h"
 
 int main()
 {
@@ -12,6 +14,21 @@ int main()
     else if (lvl == "WARN")  drogon::app().setLogLevel(trantor::Logger::kWarn);
     else if (lvl == "ERROR") drogon::app().setLogLevel(trantor::Logger::kError);
     else                     drogon::app().setLogLevel(trantor::Logger::kInfo);
+
+    // Refuse to start rather than run insecurely. A misconfigured secret is
+    // worse than a crash: it looks fine and silently accepts forged tokens.
+    if (!password::init())
+    {
+        LOG_FATAL << "libsodium failed to initialise";
+        return 1;
+    }
+    std::string jwtProblem;
+    if (!jwt_util::validateSecretAtStartup(jwtProblem))
+    {
+        LOG_FATAL << "Refusing to start: " << jwtProblem
+                  << ". Generate one with: openssl rand -hex 32";
+        return 1;
+    }
 
     const std::string appHost = config::get("APP_HOST", "127.0.0.1");
     const int appPort = config::getInt("APP_PORT", 8080);
