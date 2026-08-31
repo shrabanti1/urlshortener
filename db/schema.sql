@@ -12,8 +12,15 @@ CREATE TABLE IF NOT EXISTS urls (
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- Start ids at 62^3 so the first short code is "1000" rather than "1".
--- Codes stay 4 characters until id reaches 62^4 (14,776,336).
--- NOTE: this only makes codes look less trivial. It does NOT hide the fact
--- that ids are sequential; see README for the tradeoff.
-ALTER SEQUENCE urls_id_seq RESTART WITH 238328;
+-- Start ids at 62^3 so short codes are never trivially small.
+--
+-- Guarded so it is safe to re-run: the migration runner executes this file on
+-- every boot, and an unconditional ALTER SEQUENCE would rewind the counter and
+-- hand out ids that already exist.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM urls)
+       AND (SELECT last_value FROM urls_id_seq) < 238328 THEN
+        PERFORM setval('urls_id_seq', 238328, false);
+    END IF;
+END $$;

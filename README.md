@@ -152,7 +152,8 @@ only). Postgres data lives in a named volume and survives `docker compose down`.
 > The first build compiles Drogon from source and takes 10–20 minutes. Later
 > builds reuse that layer and take seconds.
 
-Hosting it publicly: [`docs/HOSTING.md`](docs/HOSTING.md) — VPS + DuckDNS + a
+Hosting it publicly: [`docs/RENDER.md`](docs/RENDER.md) (managed, no server to
+run) or [`docs/HOSTING.md`](docs/HOSTING.md) — VPS + DuckDNS + a
 prebuilt image, step by step. General reference: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ---
@@ -350,6 +351,10 @@ override it with no code change.
 | `IP_HASH_SECRET` | — | rotating it invalidates historical unique counts |
 | `ANALYTICS_MODE` | `async` | `sync` only for deterministic tests |
 | `TRUST_PROXY_HEADERS` | `false` | `true` only behind a proxy that overwrites XFF |
+| `STANDALONE` | `false` | `true` when there is no nginx: app serves the UI, headers and rate limits |
+| `RUN_MIGRATIONS` | `false` | `true` on managed databases with no init-script hook |
+| `RATE_LIMIT_ENABLED` | `false` | in-app rate limiting, for standalone deployments |
+| `PORT` | — | set by PaaS platforms; takes precedence over `APP_PORT` |
 
 ---
 

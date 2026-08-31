@@ -8,6 +8,9 @@
 #include "utils/Net.h"
 #include "cache/RedisPool.h"
 #include "services/ClickBatcher.h"
+#include "middleware/RateLimit.h"
+#include "middleware/SecurityHeaders.h"
+#include "utils/Migrations.h"
 #include "utils/ShortCode.h"
 #include "utils/Password.h"
 
@@ -64,7 +67,14 @@ int main()
     }
 
     const std::string appHost = config::get("APP_HOST", "127.0.0.1");
-    const int appPort = config::getInt("APP_PORT", 8080);
+    // PaaS platforms (Render, Railway, Heroku) inject the port to listen on as
+    // $PORT and route to it; it takes precedence over our own setting.
+    const int appPort = config::getInt("PORT", config::getInt("APP_PORT", 8080));
+
+    // STANDALONE=true means there is no nginx in front, so the app has to do
+    // the jobs nginx normally does: serve the UI, add security headers and
+    // rate limit. Behind Compose this stays false and nginx keeps doing them.
+    const bool standalone = config::get("STANDALONE", "false") == "true";
 
     // Create the connection pool. Because the framework owns this client, it
     // stays alive for as long as the event loop does.
@@ -87,6 +97,60 @@ int main()
     // Redis is optional. If it cannot be reached the app still works; every
     // lookup simply falls through to PostgreSQL.
     RedisPool::instance().start();
+
+    // A managed database has no init-script hook, so apply the schema here.
+    // Every statement is idempotent, so this is safe on every boot.
+    if (config::get("RUN_MIGRATIONS", "false") == "true")
+    {
+        // libpq conninfo: single-quote every value so passwords containing
+        // spaces or symbols cannot break the string.
+        auto quoted = [](const std::string &v)
+        {
+            std::string out = "'";
+            for (char ch : v)
+            {
+                if (ch == '\'' || ch == '\\') out += '\\';
+                out += ch;
+            }
+            return out + "'";
+        };
+        const std::string connInfo =
+            "host=" + quoted(dbCfg.host) +
+            " port=" + std::to_string(dbCfg.port) +
+            " dbname=" + quoted(dbCfg.databaseName) +
+            " user=" + quoted(dbCfg.username) +
+            " password=" + quoted(dbCfg.password) +
+            " connect_timeout=10";
+
+        std::string migrationProblem;
+        if (!migrations::run(config::get("MIGRATIONS_DIR", "db"), connInfo,
+                             migrationProblem))
+        {
+            LOG_FATAL << "Refusing to start: " << migrationProblem;
+            return 1;
+        }
+        LOG_INFO << "migrations complete";
+    }
+
+    if (standalone)
+    {
+        // Serve web/ as static files: the single-page UI and the API spec.
+        drogon::app().setDocumentRoot(config::get("STATIC_ROOT", "web"));
+        drogon::app().setStaticFilesCacheTime(0);
+        // Drogon serves only an allow-list of extensions, and yaml/json are
+        // not on it by default -- without this the OpenAPI spec 404s.
+        drogon::app().setFileTypes(
+            {"html", "css", "js", "yaml", "yml", "json", "txt",
+             "svg", "png", "jpg", "jpeg", "gif", "ico", "webp", "woff2"});
+
+        // Applied to every response, including static files and 404s.
+        drogon::app().registerPreSendingAdvice(&security_headers::apply);
+
+        // Runs before routing; a non-null return short-circuits with a 429.
+        drogon::app().registerSyncAdvice(&rate_limit::check);
+
+        LOG_INFO << "standalone mode: serving static files, headers and rate limits";
+    }
 
 
     // Routes live in src/controllers/*. Drogon discovers them automatically,
@@ -118,7 +182,7 @@ int main()
 
     drogon::app()
         .addListener(appHost, appPort)
-        .setThreadNum(1)
+        .setThreadNum(config::getInt("APP_THREADS", 1))
         .run();
 
     return 0;

@@ -1,9 +1,27 @@
 #include "HealthController.h"
 
+#include <filesystem>
+
+#include "utils/Config.h"
+
 void HealthController::root(
     const drogon::HttpRequestPtr &,
     std::function<void(const drogon::HttpResponsePtr &)> &&callback)
 {
+    // With nginx in front, nginx serves the UI and this stays the plain-text
+    // service name. Standalone (Render, Fly) the app serves the page itself.
+    if (config::get("STANDALONE", "false") == "true")
+    {
+        const std::string index =
+            config::get("STATIC_ROOT", "web") + "/index.html";
+        if (std::filesystem::exists(index))
+        {
+            callback(drogon::HttpResponse::newFileResponse(
+                index, "", drogon::CT_TEXT_HTML));
+            return;
+        }
+    }
+
     auto resp = drogon::HttpResponse::newHttpResponse();
     resp->setStatusCode(drogon::k200OK);
     resp->setContentTypeCode(drogon::CT_TEXT_PLAIN);

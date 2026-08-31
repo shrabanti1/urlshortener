@@ -101,8 +101,13 @@ RUN useradd --system --create-home --shell /usr/sbin/nologin appuser
 
 COPY --from=builder /src/build/url_shortener /usr/local/bin/url_shortener
 
+# Needed only by standalone (no-nginx) deployments, but small enough to always
+# ship: the UI, the API spec, and the SQL the migration runner applies.
+COPY --chown=appuser:appuser web/ /app/web/
+COPY --chown=appuser:appuser db/  /app/db/
+
 USER appuser
-WORKDIR /home/appuser
+WORKDIR /app
 
 EXPOSE 8080
 

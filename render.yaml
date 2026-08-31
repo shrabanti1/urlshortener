@@ -1,0 +1,114 @@
+# Render Blueprint. Create the stack with:
+#   Render dashboard -> New -> Blueprint -> connect this repo
+#
+# Differences from the Docker Compose deployment:
+#   - Render terminates TLS and routes straight to the container, so there is
+#     no nginx. STANDALONE=true makes the app serve the UI, set security
+#     headers and rate limit by itself.
+#   - A managed database has no init-script hook, so RUN_MIGRATIONS=true makes
+#     the app apply db/schema.sql and db/migrations/*.sql at start-up. Every
+#     statement is idempotent, so re-running on each deploy is safe.
+
+services:
+  - type: web
+    name: urlshortener
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # The runtime stage: just the binary and its shared libraries.
+    dockerTarget: runtime
+    plan: starter          # "free" spins down after 15 min idle; see docs/RENDER.md
+    healthCheckPath: /health
+    envVars:
+      - key: STANDALONE
+        value: "true"
+      - key: RUN_MIGRATIONS
+        value: "true"
+      - key: MIGRATIONS_DIR
+        value: /app/db
+      - key: STATIC_ROOT
+        value: /app/web
+      - key: APP_HOST
+        value: 0.0.0.0
+      # Render injects PORT; the app prefers it over APP_PORT.
+      - key: APP_THREADS
+        value: "2"
+
+      # Render sits in front of the container and sets X-Forwarded-For.
+      - key: TRUST_PROXY_HEADERS
+        value: "true"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_AUTH_PER_MIN
+        value: "20"
+      - key: RATE_LIMIT_API_PER_MIN
+        value: "300"
+      - key: RATE_LIMIT_REDIRECT_PER_MIN
+        value: "1200"
+
+      # Database. fromDatabase wires these in automatically.
+      - key: DB_HOST
+        fromDatabase: { name: urlshortener-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: urlshortener-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: urlshortener-db, property: database }
+      - key: DB_USER
+        fromDatabase: { name: urlshortener-db, property: user }
+      - key: DB_PASSWORD
+        fromDatabase: { name: urlshortener-db, property: password }
+      - key: DB_POOL_SIZE
+        value: "5"
+      - key: DB_TIMEOUT_SEC
+        value: "10"
+
+      # Cache. The app degrades gracefully without Redis, so this can be
+      # removed entirely to save a service -- redirects then cost ~2.7ms
+      # instead of ~0.6ms.
+      - key: CACHE_ENABLED
+        value: "true"
+      - key: REDIS_HOST
+        fromService: { type: keyvalue, name: urlshortener-cache, property: host }
+      - key: REDIS_PORT
+        fromService: { type: keyvalue, name: urlshortener-cache, property: port }
+      - key: REDIS_TTL_SECONDS
+        value: "3600"
+      - key: REDIS_TIMEOUT_SEC
+        value: "1"
+
+      # Secrets: generated once by Render and kept across deploys.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: IP_HASH_SECRET
+        generateValue: true
+      - key: JWT_EXPIRY_MINUTES
+        value: "15"
+      - key: REFRESH_TOKEN_DAYS
+        value: "30"
+
+      # Must match the public URL Render assigns, or short links point at the
+      # wrong host. Set it after the first deploy (see docs/RENDER.md).
+      - key: BASE_URL
+        sync: false
+
+      - key: ANALYTICS_ENABLED
+        value: "true"
+      - key: ANALYTICS_MODE
+        value: "async"
+      - key: ANALYTICS_BATCH
+        value: "true"
+      - key: SHORTCODE_PERMUTE
+        value: "true"
+      - key: LOG_LEVEL
+        value: "INFO"
+
+databases:
+  - name: urlshortener-db
+    databaseName: urlshortener
+    user: urlshortener
+    plan: basic-256mb      # "free" is DELETED 30 days after creation
+
+  - name: urlshortener-cache
+    type: keyvalue
+    plan: free             # in-memory only, which is exactly what a cache wants
+    ipAllowList: []        # reachable only from inside Render
