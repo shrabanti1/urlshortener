@@ -118,6 +118,8 @@ services:
     depends_on:
       app:
         condition: service_healthy
+      swagger:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
       interval: 10s

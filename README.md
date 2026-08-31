@@ -100,7 +100,9 @@ Adding Redis in Phase 3 required **no controller changes at all**.
 🔒 requires `Authorization: Bearer <token>`
 
 Full OpenAPI spec: [`docs/openapi.yaml`](docs/openapi.yaml).
-Interactive docs at `http://localhost:8082/docs/` when running with Compose.
+Interactive docs at **`http://localhost:8081/docs/`** when running with Compose.
+Swagger is proxied through nginx so it shares an origin with the API; calling
+the API from a different port would be blocked by the browser as cross-origin.
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8081/api/auth/register \

@@ -17,6 +17,8 @@ info:
     name: MIT
 
 servers:
+  # Same origin as the Swagger page itself, so "Try it out" is not a
+  # cross-origin request.
   - url: http://localhost:8081
     description: Local Docker Compose
   - url: https://short.example.com
