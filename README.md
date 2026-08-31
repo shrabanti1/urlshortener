@@ -10,6 +10,19 @@ tests, containers, and deployment.
 
 ---
 
+## Web interface
+
+![Shortly web UI](docs/img/screenshot.png)
+
+A dependency-free single page (no framework, no CDN) served by nginx at the
+root. Sign up, shorten a URL, copy it, view per-link click stats, delete links.
+It stores the token pair in `localStorage` and silently spends the refresh
+token when a 15-minute access token expires, so a session survives without a
+re-login.
+
+Served from the same origin as the API on purpose: a page on another port would
+be a cross-origin request and the browser would block it.
+
 ## Architecture
 
 ```
@@ -85,7 +98,7 @@ Adding Redis in Phase 3 required **no controller changes at all**.
 
 | Method | Path | Purpose | Success |
 |--------|------|---------|---------|
-| GET | `/` | Service name | 200 |
+| GET | `/` | Web UI (nginx) · service name (app directly) | 200 |
 | GET | `/health` | Liveness + real DB round trip | 200/503 |
 | POST | `/api/auth/register` | Create account, returns JWT | 201/409 |
 | POST | `/api/auth/login` | Exchange credentials for JWT | 200/401 |
@@ -284,6 +297,7 @@ redirect path. Fix that by batching before anything else.
 ## Project layout
 
 ```
+web/index.html            single-page UI, no build step
 src/
 ├── main.cpp              wiring only: config, DB pool, Redis, listen
 ├── controllers/          HealthController · UrlController · AuthController · AnalyticsController

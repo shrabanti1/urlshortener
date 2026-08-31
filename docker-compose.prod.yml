@@ -49,6 +49,7 @@ services:
       # envsubst is not available, so the template is rendered at start-up by
       # substituting ${DOMAIN}. See the command below.
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.template.conf:ro
+      - ./web:/usr/share/nginx/html:ro
       - certbot_conf:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot:ro
     environment:
@@ -64,10 +65,13 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
-  # Not exposed in production: the spec documents auth endpoints and rate
-  # limits, and an unauthenticated docs UI is needless attack surface.
+  # Kept running but NOT published and NOT proxied: nginx.prod.conf has no
+  # /docs location, so the spec is unreachable from the internet. Disabling the
+  # service outright would break nginx's depends_on.
   swagger:
-    profiles: ["disabled"]
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
 
   certbot:
     image: certbot/certbot:latest

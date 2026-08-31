@@ -15,3 +15,6 @@ config.local.json
 
 # Vendored test dependency downloaded by CMake FetchContent
 build/_deps/
+
+# Browser-test artefacts
+.shots/
