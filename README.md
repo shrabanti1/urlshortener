@@ -152,7 +152,8 @@ only). Postgres data lives in a named volume and survives `docker compose down`.
 > The first build compiles Drogon from source and takes 10–20 minutes. Later
 > builds reuse that layer and take seconds.
 
-Deployment to a real server: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+Hosting it publicly: [`docs/HOSTING.md`](docs/HOSTING.md) — VPS + DuckDNS + a
+prebuilt image, step by step. General reference: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ---
 

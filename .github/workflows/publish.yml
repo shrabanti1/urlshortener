@@ -1,0 +1,70 @@
+name: Publish image
+
+# Builds the runtime image on GitHub's runners and pushes it to GHCR, so the
+# server only ever pulls. Compiling Drogon from source on a 2 GB VPS takes
+# 20-40 minutes and is routinely killed by the OOM reaper; here it is free,
+# fast, and cached between runs.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write        # required to push to GHCR
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR rejects uppercase names, and repository names often contain them.
+      - name: Compute image name
+        id: img
+        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          # Provided automatically; no secret to configure.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: true
+          # linux/amd64 only: standard x86 VPS. An ARM instance (Hetzner CAX,
+          # Oracle Ampere) would need linux/arm64 adding here, which costs a
+          # slow emulated build unless a native ARM runner is used.
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.img.outputs.name }}:latest
+            ${{ steps.img.outputs.name }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### Image published"
+            echo ""
+            echo '```'
+            echo "docker pull ${{ steps.img.outputs.name }}:latest"
+            echo '```'
+            echo ""
+            echo "If the pull fails on the server with 'denied', make the package"
+            echo "public: GitHub → your profile → Packages → this package →"
+            echo "Package settings → Change visibility → Public."
+          } >> "$GITHUB_STEP_SUMMARY"

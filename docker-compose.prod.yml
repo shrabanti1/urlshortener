@@ -26,6 +26,11 @@ services:
       options: { max-size: "10m", max-file: "3" }
 
   app:
+    # Pull a prebuilt image instead of compiling on the server. Set IMAGE in
+    # .env, e.g. IMAGE=ghcr.io/yourname/urlshortener
+    # Falls back to a local build if IMAGE is unset.
+    image: ${IMAGE:-urlshortener-app}:${IMAGE_TAG:-latest}
+    pull_policy: ${PULL_POLICY:-always}
     environment:
       BASE_URL: https://${DOMAIN:?DOMAIN must be set}
       LOG_LEVEL: INFO
