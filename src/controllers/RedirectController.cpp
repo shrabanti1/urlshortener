@@ -8,6 +8,18 @@
 
 namespace {
 
+// 410 Gone, not 404: the link existed and was deliberately retired. That
+// distinction matters to crawlers, which drop a 410 from their index far
+// faster than a 404.
+drogon::HttpResponsePtr gone()
+{
+    auto resp = drogon::HttpResponse::newHttpResponse();
+    resp->setStatusCode(drogon::k410Gone);
+    resp->setContentTypeCode(drogon::CT_TEXT_PLAIN);
+    resp->setBody("This short link has expired");
+    return resp;
+}
+
 drogon::HttpResponsePtr notFound()
 {
     auto resp = drogon::HttpResponse::newHttpResponse();
@@ -64,6 +76,12 @@ void RedirectController::redirect(
             {
                 callback(notFound());
                 return;
+            }
+
+            if (found->expired)
+            {
+                callback(gone());
+                return;   // an expired link records no click
             }
 
             auto redirectResp = drogon::HttpResponse::newRedirectionResponse(

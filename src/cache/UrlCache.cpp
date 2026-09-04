@@ -3,6 +3,10 @@
 #include <atomic>
 #include <chrono>
 
+#include <algorithm>
+#include <cstdlib>
+#include <ctime>
+
 #include "RedisPool.h"
 #include "utils/Config.h"
 
@@ -64,6 +68,37 @@ int ttlSeconds()
     return config::getInt("REDIS_TTL_SECONDS", 3600);
 }
 
+// Postgres renders TIMESTAMPTZ as "YYYY-MM-DD HH:MM:SS.ffffff+TZ".
+// Returns 0 if it cannot be parsed, which makes the caller fall back to the
+// normal TTL rather than caching something forever.
+int secondsUntil(const std::string &timestamptz)
+{
+    std::tm tm{};
+    if (::strptime(timestamptz.c_str(), "%Y-%m-%d %H:%M:%S", &tm) == nullptr)
+        return 0;
+
+    // The string carries its own offset; parse it so the comparison is not
+    // silently done in local time.
+    int offsetHours = 0, offsetMinutes = 0;
+    const auto plus = timestamptz.find_last_of("+-");
+    if (plus != std::string::npos && plus > 10)
+    {
+        const std::string off = timestamptz.substr(plus);
+        offsetHours = std::atoi(off.substr(1, 2).c_str());
+        if (off.size() >= 5) offsetMinutes = std::atoi(off.substr(4, 2).c_str());
+        if (off[0] == '-') { offsetHours = -offsetHours; offsetMinutes = -offsetMinutes; }
+    }
+
+    tm.tm_isdst = 0;
+    const std::time_t asUtc = ::timegm(&tm);
+    const std::time_t expiry =
+        asUtc - (offsetHours * 3600 + offsetMinutes * 60);
+    const std::time_t now = std::time(nullptr);
+    const long long remaining = static_cast<long long>(expiry - now);
+    if (remaining <= 0) return 0;
+    return static_cast<int>(std::min<long long>(remaining, 2147483647LL));
+}
+
 }  // namespace
 
 std::string UrlCache::key(const std::string &shortCode)
@@ -108,7 +143,13 @@ void UrlCache::get(const std::string &shortCode,
             rec.id          = json.get("id", 0).asInt64();
             rec.originalUrl = json.get("originalUrl", "").asString();
             rec.userId      = json.get("userId", 0).asInt64();
+            rec.expiresAt   = json.get("expiresAt", "").asString();
+            rec.isCustom    = json.get("isCustom", false).asBool();
             rec.shortCode   = shortCode;
+            // A cached entry is only written for a live link, and its TTL is
+            // capped at the link's own lifetime, so anything still in the
+            // cache has not expired yet.
+            rec.expired     = false;
 
             if (rec.originalUrl.empty())
             {
@@ -141,12 +182,24 @@ void UrlCache::put(const UrlRecord &record) const
     // Consumers do ownership checks on this, so it MUST be cached; a partial
     // record made cache hits behave differently from cache misses.
     json["userId"]      = static_cast<Json::Int64>(record.userId);
+    json["expiresAt"]   = record.expiresAt;
+    json["isCustom"]    = record.isCustom;
 
     Json::FastWriter writer;
     std::string payload = writer.write(json);
     if (!payload.empty() && payload.back() == '\n') payload.pop_back();
 
     const std::string k = key(record.shortCode);
+
+    // Never cache a link for longer than it has left to live, or Redis would
+    // keep redirecting after the link expired.
+    int ttl = ttlSeconds();
+    if (!record.expiresAt.empty())
+    {
+        const int remaining = secondsUntil(record.expiresAt);
+        if (remaining <= 0) return;            // already expired: do not cache
+        ttl = std::min(ttl, remaining);
+    }
 
     // SETEX = SET with an expiry, atomically. Using SET then EXPIRE would
     // risk leaving a key with no TTL if the second command failed.
@@ -156,7 +209,7 @@ void UrlCache::put(const UrlRecord &record) const
         {
             LOG_WARN << "redis SETEX failed for " << code << ": " << e.what();
         },
-        "SETEX %s %d %s", k.c_str(), ttlSeconds(), payload.c_str());
+        "SETEX %s %d %s", k.c_str(), ttl, payload.c_str());
 }
 
 void UrlCache::invalidate(const std::string &shortCode) const

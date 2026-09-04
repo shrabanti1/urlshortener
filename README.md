@@ -15,7 +15,8 @@ tests, containers, and deployment.
 ![Shortly web UI](docs/img/screenshot.png)
 
 A dependency-free single page (no framework, no CDN) served by nginx at the
-root. Sign up, shorten a URL, copy it, view per-link click stats, delete links.
+root. Sign up, shorten a URL with an optional custom alias and expiry, copy it,
+view per-link click stats with a 30-day chart, delete links.
 It stores the token pair in `localStorage` and silently spends the refresh
 token when a 15-minute access token expires, so a session survives without a
 re-login.
@@ -104,11 +105,11 @@ Adding Redis in Phase 3 required **no controller changes at all**.
 | POST | `/api/auth/login` | Exchange credentials for JWT | 200/401 |
 | POST | `/api/auth/refresh` | Rotate refresh token, new access token | 200/401 |
 | POST | `/api/auth/logout` | Revoke a refresh token (or all) | 204 |
-| POST | `/api/urls` 🔒 | Create a short URL | 201 |
+| POST | `/api/urls` 🔒 | Create a short URL (optional `alias`, `expiresInDays`) | 201/409 |
 | GET | `/api/urls` 🔒 | List your URLs (paginated) | 200 |
 | DELETE | `/api/urls/{code}` 🔒 | Delete your URL | 204/404 |
 | GET | `/api/urls/{code}/stats` 🔒 | Click analytics | 200/404 |
-| GET | `/{shortCode}` | Redirect to the original URL | 302/404 |
+| GET | `/{shortCode}` | Redirect to the original URL | 302/404/410 |
 
 🔒 requires `Authorization: Bearer <token>`
 
@@ -206,9 +207,9 @@ cmake -S . -B build && cmake --build build -j
 
 ```bash
 cd build
-ctest --output-on-failure     # 104 tests
-ctest -L unit                 # 62 unit tests, no dependencies (~3s)
-ctest -L integration          # 42 tests, needs Postgres + Redis
+ctest --output-on-failure     # 125 tests
+ctest -L unit                 # 69 unit tests, no dependencies (~3s)
+ctest -L integration          # 56 tests, needs Postgres + Redis
 ```
 
 Integration tests use a separate database so they can truncate freely:
@@ -222,8 +223,8 @@ done
 
 | Suite | Count | Covers |
 |---|---|---|
-| Unit | 62 | Base62 (150k round-trips, injectivity, overflow), short-code permutation (bijectivity, non-adjacency), URL validation, JWT (`alg:none`, tampering, expiry, foreign secrets), Argon2id, IP hashing, refresh-token minting |
-| Integration | 42 | Repositories against real Postgres/Redis, cache-hit vs cache-miss equivalence, full HTTP journey, cross-user authorization, refresh rotation and replay detection, click batching (escaping, concurrency, partial flush) |
+| Unit | 69 | Base62 (150k round-trips, injectivity, overflow), short-code permutation (bijectivity, non-adjacency), URL validation, JWT (`alg:none`, tampering, expiry, foreign secrets), Argon2id, IP hashing, refresh-token minting, alias validation and reserved words |
+| Integration | 56 | Repositories against real Postgres/Redis, cache-hit vs cache-miss equivalence, full HTTP journey, cross-user authorization, refresh rotation and replay detection, click batching (escaping, concurrency, partial flush), aliases, expiry and 410, zero-filled daily series |
 
 ---
 
@@ -236,6 +237,19 @@ retry loop — but consecutive ids scatter, so the code space cannot be walked.
 Codes are a fixed 6 characters. `SHORTCODE_PERMUTE=false` restores plain Base62;
 existing rows keep working either way because `short_code` is stored, not
 recomputed.
+
+**Custom aliases share one namespace with generated codes.** `short_code` is
+`UNIQUE`, so `ON CONFLICT DO NOTHING` makes a taken code ordinary control flow
+rather than an exception. The two cases then diverge deliberately: a custom
+alias returns `409` because the user asked for *that* code, while a generated
+code silently takes the next id and retries (bounded at 5 attempts). Aliases
+that would shadow a real route — `api`, `docs`, `health` — are reserved.
+
+**Expired links return `410 Gone`, not `404`.** The link existed and was
+deliberately retired; crawlers drop a `410` from their index far faster. Cache
+entries are capped at the link's remaining lifetime, so Redis can never outlive
+the link it caches. An hourly job purges links expired beyond a grace period
+and invalidates their cache entries.
 
 **302, not 301.** A permanent redirect is cached by browsers indefinitely, which
 would break click analytics and make a URL impossible to change or delete. The
@@ -309,7 +323,9 @@ src/
 ├── services/             ClickBatcher
 ├── cache/                UrlCache (Redis + circuit breaker)
 ├── models/               UrlRecord · User · ClickEvent
-└── utils/                Config · Base62 · ShortCode · UrlValidator · Password · Jwt · IpHash · Net
+├── middleware/           SecurityHeaders · RateLimit (standalone mode)
+└── utils/                Config · Base62 · ShortCode · UrlValidator · AliasValidator
+                          Password · Jwt · IpHash · Net · Migrations
 .github/workflows/ci.yml  build + tests + docker smoke test + spec/compose lint
 tests/
 ├── unit/                 no I/O
@@ -344,6 +360,8 @@ override it with no code change.
 | `JWT_EXPIRY_MINUTES` | `15` | access token lifetime |
 | `REFRESH_TOKEN_DAYS` | `30` | refresh token lifetime |
 | `SHORTCODE_PERMUTE` | `true` | `false` gives plain sequential Base62 |
+| `EXPIRY_CLEANUP_ENABLED` | `true` | hourly purge of long-expired links |
+| `EXPIRY_GRACE_DAYS` | `7` | how long an expired link is kept before deletion |
 | `ANALYTICS_BATCH` | `true` | batch click inserts |
 | `ANALYTICS_BATCH_SIZE` | `100` | events per flush |
 | `ANALYTICS_FLUSH_MS` | `1000` | max time an event waits in the buffer |

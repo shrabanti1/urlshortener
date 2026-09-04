@@ -10,7 +10,7 @@ class UrlController : public drogon::HttpController<UrlController>
     ADD_METHOD_TO(UrlController::createUrl, "/api/urls", drogon::Post, "JwtAuthFilter");
     ADD_METHOD_TO(UrlController::listUrls,  "/api/urls", drogon::Get,  "JwtAuthFilter");
     ADD_METHOD_VIA_REGEX(UrlController::deleteUrl,
-                         "^/api/urls/([0-9A-Za-z]{1,16})$",
+                         "^/api/urls/([0-9A-Za-z_-]{1,16})$",
                          drogon::Delete, "JwtAuthFilter");
     METHOD_LIST_END
 

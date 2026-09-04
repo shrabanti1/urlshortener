@@ -17,12 +17,29 @@ class UrlRepository
     // Atomically reserves the next id from the sequence.
     void nextId(std::function<void(long long)> onSuccess, ErrorCb onError) const;
 
+    // onSuccess(false) means the short code was already taken. The caller
+    // decides what that means: a custom alias is a 409, whereas a generated
+    // code just retries with the next id.
     void insert(long long id,
                 const std::string &originalUrl,
                 const std::string &shortCode,
                 long long userId,
-                std::function<void()> onSuccess,
+                bool isCustom,
+                int expiresInDays,
+                std::function<void(bool)> onSuccess,
                 ErrorCb onError) const;
+
+    // Daily click counts for the last N days, including days with zero
+    // clicks -- a chart that silently skips empty days is misleading.
+    void dailyClicks(long long urlId,
+                     int days,
+                     std::function<void(std::vector<std::pair<std::string, long long>>)> onSuccess,
+                     ErrorCb onError) const;
+
+    // Removes links that expired more than a grace period ago.
+    void deleteExpired(int graceDays,
+                       std::function<void(std::vector<std::string>)> onSuccess,
+                       ErrorCb onError) const;
 
     // Newest first. Served by the (user_id, created_at DESC) index.
     void listByUser(long long userId,

@@ -7,6 +7,8 @@
 #include "utils/IpHash.h"
 #include "utils/Net.h"
 #include "cache/RedisPool.h"
+#include "cache/UrlCache.h"
+#include "repositories/UrlRepository.h"
 #include "services/ClickBatcher.h"
 #include "middleware/RateLimit.h"
 #include "middleware/SecurityHeaders.h"
@@ -166,6 +168,34 @@ int main()
                 config::get("ANALYTICS_MODE", "async") != "sync")
                 ClickBatcher::instance().start();
             RedisPool::instance().startWatchdog();
+
+            // Purge links that expired a while ago. Expired links already
+            // return 410 on their own; this only stops the table growing
+            // forever, so an hourly sweep is plenty.
+            if (config::get("EXPIRY_CLEANUP_ENABLED", "true") == "true")
+            {
+                const double every =
+                    config::getInt("EXPIRY_CLEANUP_INTERVAL_SEC", 3600);
+                drogon::app().getLoop()->runEvery(
+                    every,
+                    []
+                    {
+                        static const UrlRepository repo;
+                        static const UrlCache cache;
+                        repo.deleteExpired(
+                            config::getInt("EXPIRY_GRACE_DAYS", 7),
+                            [](std::vector<std::string> codes)
+                            {
+                                if (codes.empty()) return;
+                                static const UrlCache c;
+                                for (const auto &code : codes) c.invalidate(code);
+                                LOG_INFO << "expiry cleanup removed " << codes.size()
+                                         << " links";
+                            },
+                            [](const std::string &err)
+                            { LOG_WARN << "expiry cleanup failed: " << err; });
+                    });
+            }
         });
 
     // Flush buffered clicks instead of dropping them on shutdown. Drogon's

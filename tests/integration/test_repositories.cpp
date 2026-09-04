@@ -115,8 +115,10 @@ TEST_F(RepositoryTest, NextIdReturnsIncreasingValues)
 
 TEST_F(RepositoryTest, InsertThenFindRoundTrips)
 {
-    awaitVoid([&](auto ok, auto err)
-              { urls.insert(238328, "https://example.com/one", "1000", 0, ok, err); });
+    const bool stored = await<bool>(
+        [&](auto ok, auto err)
+        { urls.insert(238328, "https://example.com/one", "1000", 0, false, 0, ok, err); });
+    ASSERT_TRUE(stored);
 
     const auto found = await<std::optional<UrlRecord>>(
         [&](auto ok, auto err) { urls.findByShortCode("1000", ok, err); });
@@ -146,9 +148,10 @@ TEST_F(RepositoryTest, CacheHitReturnsSameRecordAsCacheMiss)
         { users.create("owner@example.com", password::hash("pw-for-test"), ok, err); });
     ASSERT_TRUE(owner.has_value());
 
-    awaitVoid([&](auto ok, auto err)
-              { urls.insert(238328, "https://example.com/owned", "1000",
-                            owner->id, ok, err); });
+    ASSERT_TRUE(await<bool>(
+        [&](auto ok, auto err)
+        { urls.insert(238328, "https://example.com/owned", "1000", owner->id,
+                      false, 0, ok, err); }));
 
     // First read: cache miss, straight from PostgreSQL.
     const auto fromDb = await<std::optional<UrlRecord>>(
@@ -171,13 +174,16 @@ TEST_F(RepositoryTest, CacheHitReturnsSameRecordAsCacheMiss)
 
 TEST_F(RepositoryTest, UniqueConstraintRejectsDuplicateShortCode)
 {
-    awaitVoid([&](auto ok, auto err)
-              { urls.insert(238328, "https://example.com/a", "1000", 0, ok, err); });
-
-    const auto error = awaitExpectingFailure(
+    ASSERT_TRUE(await<bool>(
         [&](auto ok, auto err)
-        { urls.insert(238329, "https://example.com/b", "1000", 0, ok, err); });
-    EXPECT_NE(error, "") << "duplicate short_code was accepted";
+        { urls.insert(238328, "https://example.com/a", "1000", 0, false, 0, ok, err); }));
+
+    // ON CONFLICT DO NOTHING turns a taken code into a normal "false" answer
+    // rather than an exception, so callers can decide what it means.
+    const bool second = await<bool>(
+        [&](auto ok, auto err)
+        { urls.insert(238329, "https://example.com/b", "1000", 0, false, 0, ok, err); });
+    EXPECT_FALSE(second) << "duplicate short_code was accepted";
 }
 
 TEST_F(RepositoryTest, DeleteOnlyAffectsTheOwnersRow)
@@ -191,9 +197,10 @@ TEST_F(RepositoryTest, DeleteOnlyAffectsTheOwnersRow)
     ASSERT_TRUE(alice.has_value());
     ASSERT_TRUE(bob.has_value());
 
-    awaitVoid([&](auto ok, auto err)
-              { urls.insert(238328, "https://example.com/alice", "1000",
-                            alice->id, ok, err); });
+    ASSERT_TRUE(await<bool>(
+        [&](auto ok, auto err)
+        { urls.insert(238328, "https://example.com/alice", "1000", alice->id,
+                      false, 0, ok, err); }));
 
     const bool byStranger = await<bool>(
         [&](auto ok, auto err) { urls.deleteOwned("1000", bob->id, ok, err); });
@@ -221,9 +228,10 @@ TEST_F(RepositoryTest, ListByUserReturnsOnlyThatUsersRowsNewestFirst)
 
     auto add = [&](long long id, const char *code, long long owner)
     {
-        awaitVoid([&](auto ok, auto err)
-                  { urls.insert(id, std::string("https://example.com/") + code,
-                                code, owner, ok, err); });
+        ASSERT_TRUE(await<bool>(
+            [&](auto ok, auto err)
+            { urls.insert(id, std::string("https://example.com/") + code, code,
+                          owner, false, 0, ok, err); }));
         std::this_thread::sleep_for(std::chrono::milliseconds(10));  // distinct created_at
     };
     add(238328, "1000", u1->id);
@@ -250,9 +258,10 @@ TEST_F(RepositoryTest, ListByUserPaginates)
     ASSERT_TRUE(u.has_value());
 
     for (int i = 0; i < 5; ++i)
-        awaitVoid([&](auto ok, auto err)
-                  { urls.insert(238328 + i, "https://example.com/x",
-                                std::to_string(1000 + i), u->id, ok, err); });
+        ASSERT_TRUE(await<bool>(
+            [&](auto ok, auto err)
+            { urls.insert(238328 + i, "https://example.com/x",
+                          std::to_string(1000 + i), u->id, false, 0, ok, err); }));
 
     const auto page1 = await<std::vector<UrlRecord>>(
         [&](auto ok, auto err) { urls.listByUser(u->id, 2, 0, ok, err); });

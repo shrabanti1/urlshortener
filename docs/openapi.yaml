@@ -110,6 +110,25 @@ components:
           maxLength: 2048
           description: Must use http or https, and contain no spaces.
           example: https://example.com/a/very/long/url
+        alias:
+          type: string
+          minLength: 3
+          maxLength: 16
+          pattern: '^[0-9A-Za-z][0-9A-Za-z_-]*[0-9A-Za-z]$'
+          description: |
+            Optional custom short code. Letters, numbers, hyphens and
+            underscores; must start and end with a letter or number.
+            Reserved words that would shadow a real route (`api`, `docs`,
+            `health`, ...) are rejected with 400. An alias already in use
+            returns 409 -- unlike a generated code, which silently retries.
+          example: my-blog
+        expiresInDays:
+          type: integer
+          minimum: 0
+          maximum: 3650
+          default: 0
+          description: 0 (the default) means the link never expires.
+          example: 30
 
     CreateUrlResponse:
       type: object
@@ -120,10 +139,16 @@ components:
     UrlListItem:
       type: object
       properties:
-        shortCode:   { type: string, example: "1000" }
-        shortUrl:    { type: string, example: http://localhost:8081/1000 }
+        shortCode:   { type: string, example: my-blog }
+        shortUrl:    { type: string, example: http://localhost:8081/my-blog }
         originalUrl: { type: string, example: https://example.com/a/very/long/url }
         createdAt:   { type: string, example: "2026-08-30 11:36:00.913602+05:30" }
+        isCustom:    { type: boolean, description: true if the code was user-chosen }
+        expiresAt:
+          type: string
+          description: Empty string means the link never expires.
+          example: "2026-10-04 11:36:00+05:30"
+        expired:     { type: boolean, description: Evaluated by the database, not the client }
 
     UrlList:
       type: object
@@ -146,6 +171,19 @@ components:
           description: Distinct salted IP hashes. Raw IPs are never stored.
           example: 412
         lastClickedAt:  { type: string, example: "2026-08-30 11:36:00.913602+05:30" }
+        expiresAt:      { type: string, description: Empty string means never }
+        expired:        { type: boolean }
+        dailyClicks:
+          type: array
+          description: |
+            One point per day for the requested window, including days with no
+            clicks. Zero-filled server-side with generate_series, so a chart
+            cannot silently omit quiet days.
+          items:
+            type: object
+            properties:
+              date:   { type: string, example: "2026-09-04" }
+              clicks: { type: integer, format: int64, example: 5 }
         topReferrers:
           type: array
           items:
@@ -333,6 +371,11 @@ paths:
               schema: { $ref: '#/components/schemas/CreateUrlResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: The requested alias is already taken
+          content:
+            application/json:
+              example: { error: that alias is already taken }
     get:
       tags: [URLs]
       summary: List your URLs, newest first
@@ -362,7 +405,7 @@ paths:
         - name: shortCode
           in: path
           required: true
-          schema: { type: string, pattern: '^[0-9A-Za-z]{1,16}$' }
+          schema: { type: string, pattern: '^[0-9A-Za-z_-]{1,16}$' }
       responses:
         '204': { description: Deleted }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -377,7 +420,11 @@ paths:
         - name: shortCode
           in: path
           required: true
-          schema: { type: string, pattern: '^[0-9A-Za-z]{1,16}$' }
+          schema: { type: string, pattern: '^[0-9A-Za-z_-]{1,16}$' }
+        - name: days
+          in: query
+          description: Window for `dailyClicks`. Clamped to 1-90.
+          schema: { type: integer, default: 30, minimum: 1, maximum: 90 }
       responses:
         '200':
           description: OK
@@ -399,7 +446,7 @@ paths:
         - name: shortCode
           in: path
           required: true
-          schema: { type: string, pattern: '^[0-9A-Za-z]{1,16}$' }
+          schema: { type: string, pattern: '^[0-9A-Za-z_-]{1,16}$' }
       responses:
         '302':
           description: Redirect
@@ -408,4 +455,8 @@ paths:
               schema: { type: string }
               description: The original URL
         '404': { description: No such short code }
+        '410':
+          description: |
+            The link existed but has expired. Distinct from 404 on purpose:
+            crawlers drop a 410 from their index far faster than a 404.
         '429': { $ref: '#/components/responses/TooManyRequests' }

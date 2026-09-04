@@ -11,4 +11,9 @@ struct UrlRecord
     // 0 means "no owner": links created before Phase 4 stay resolvable.
     long long userId = 0;
     std::string createdAt;
+    bool isCustom = false;
+    // Empty means "never expires".
+    std::string expiresAt;
+    // Evaluated by PostgreSQL, so it does not depend on the app's clock.
+    bool expired = false;
 };
