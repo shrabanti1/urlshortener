@@ -392,4 +392,8 @@ override it with no code change.
 
 ## License
 
-MIT
+[MIT](LICENSE) — Copyright (c) 2026 Shrabanti Mazumdar.
+
+Third-party components keep their own licenses: Drogon (MIT), jwt-cpp (MIT,
+vendored under `third_party/`), libsodium (ISC), and the npm dependencies
+listed in `frontend/package-lock.json`.

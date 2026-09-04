@@ -15,6 +15,7 @@ info:
     impossible to change or delete.
   license:
     name: MIT
+    identifier: MIT
 
 servers:
   # Same origin as the Swagger page itself, so "Try it out" is not a
