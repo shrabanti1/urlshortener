@@ -370,7 +370,7 @@ override it with no code change.
 | `ANALYTICS_MODE` | `async` | `sync` only for deterministic tests |
 | `TRUST_PROXY_HEADERS` | `false` | `true` only behind a proxy that overwrites XFF |
 | `STANDALONE` | `false` | `true` when there is no nginx: app serves the UI, headers and rate limits |
-| `RUN_MIGRATIONS` | `false` | `true` on managed databases with no init-script hook |
+| `RUN_MIGRATIONS` | `false` | apply `db/` at start-up; `true` in Compose and Render |
 | `RATE_LIMIT_ENABLED` | `false` | in-app rate limiting, for standalone deployments |
 | `PORT` | — | set by PaaS platforms; takes precedence over `APP_PORT` |
 

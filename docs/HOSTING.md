@@ -249,11 +249,16 @@ curl -sS https://yourname-short.duckdns.org/health
 
 A few seconds of downtime while the container restarts.
 
-Schema changes are **not** automatic -- the init scripts run only on an empty
-data directory. Back up first, then:
+Schema changes **are** automatic: the app applies `db/schema.sql` and
+`db/migrations/*.sql` at start-up, in filename order, on every boot. Every
+statement is idempotent, so re-running is safe.
+
+Adding a migration therefore means dropping a numbered `.sql` file into
+`db/migrations/` and redeploying -- there is no separate step to forget. Still
+take a backup before a schema change:
 
 ```bash
-dc exec -T postgres psql -U urlshortener -d urlshortener < db/migrations/00X_new.sql
+BACKUP_DIR=/var/backups/urlshortener ./scripts/backup.sh
 ```
 
 ---
