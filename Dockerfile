@@ -1,6 +1,27 @@
 # syntax=docker/dockerfile:1
 
 # =============================================================================
+# Stage 0: the React frontend.
+#
+# Separate stage so a C++ change never reruns npm, and a frontend change never
+# recompiles Drogon. package.json is copied first so `npm ci` is cached until
+# dependencies actually change.
+# =============================================================================
+FROM node:20-alpine AS frontend
+
+WORKDIR /fe
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY frontend/ ./
+# docs/openapi.yaml is the source of truth for the spec; place it where the
+# build expects it rather than running the prebuild script, which resolves a
+# path that does not exist inside this stage.
+COPY docs/openapi.yaml ./public/docs/openapi.yaml
+RUN npx tsc -b && npx vite build --outDir /out --emptyOutDir
+
+
+# =============================================================================
 # Stage 1: Drogon.
 #
 # Drogon is built from source because the distro package (like Homebrew's) is
@@ -102,8 +123,8 @@ RUN useradd --system --create-home --shell /usr/sbin/nologin appuser
 COPY --from=builder /src/build/url_shortener /usr/local/bin/url_shortener
 
 # Needed only by standalone (no-nginx) deployments, but small enough to always
-# ship: the UI, the API spec, and the SQL the migration runner applies.
-COPY --chown=appuser:appuser web/ /app/web/
+# ship: the built UI, the API spec, and the SQL the migration runner applies.
+COPY --from=frontend --chown=appuser:appuser /out/ /app/web/
 COPY --chown=appuser:appuser db/  /app/db/
 
 USER appuser

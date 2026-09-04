@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1
+#
+# nginx with the built frontend baked in.
+#
+# Previously nginx bind-mounted ./web from the host, which worked while the UI
+# was a hand-written file committed to the repo. Now that it is build output,
+# a fresh clone would have nothing to mount -- so the assets are built here.
+
+FROM node:20-alpine AS frontend
+WORKDIR /fe
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+COPY docs/openapi.yaml ./public/docs/openapi.yaml
+RUN npx tsc -b && npx vite build --outDir /out --emptyOutDir
+
+FROM nginx:1.27-alpine
+COPY --from=frontend /out/ /usr/share/nginx/html/
+# nginx.conf is still bind-mounted by compose so it can be edited without a
+# rebuild; only the assets are baked in.

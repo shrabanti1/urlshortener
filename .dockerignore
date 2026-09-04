@@ -3,5 +3,9 @@ build/
 .env
 .DS_Store
 docs/
+# ...but the API spec is served by the app, so the build needs it.
+!docs/openapi.yaml
 *.md
 !README.md
+frontend/node_modules/
+web/

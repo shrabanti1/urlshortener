@@ -18,3 +18,8 @@ build/_deps/
 
 # Browser-test artefacts
 .shots/
+
+# Frontend build output and dependencies
+/web/
+frontend/node_modules/
+frontend/public/docs/openapi.yaml

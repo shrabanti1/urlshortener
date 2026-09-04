@@ -54,7 +54,6 @@ services:
       # envsubst is not available, so the template is rendered at start-up by
       # substituting ${DOMAIN}. See the command below.
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.template.conf:ro
-      - ./web:/usr/share/nginx/html:ro
       - certbot_conf:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot:ro
     environment:

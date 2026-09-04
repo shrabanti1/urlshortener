@@ -14,9 +14,19 @@ tests, containers, and deployment.
 
 ![Shortly web UI](docs/img/screenshot.png)
 
-A dependency-free single page (no framework, no CDN) served by nginx at the
-root. Sign up, shorten a URL with an optional custom alias and expiry, copy it,
-view per-link click stats with a 30-day chart, delete links.
+React 18 + TypeScript, built with Vite. Sign up, shorten a URL with an optional
+custom alias and expiry, copy it, view per-link click stats with a 30-day
+chart, delete links.
+
+```bash
+cd frontend
+npm install
+npm run dev      # :5173, hot reload, proxies /api to :8081
+npm run build    # emits into web/, which nginx and the app image serve
+```
+
+The bundle is 154 KB (50 KB gzipped). Charts are hand-drawn SVG rather than a
+charting library, and there are no runtime dependencies beyond React itself.
 It stores the token pair in `localStorage` and silently spends the refresh
 token when a 15-minute access token expires, so a session survives without a
 re-login.
@@ -313,7 +323,11 @@ redirect path. Fix that by batching before anything else.
 ## Project layout
 
 ```
-web/index.html            single-page UI, no build step
+frontend/                 React + TypeScript source (Vite)
+├── src/api.ts            typed client; refreshes and replays on 401
+├── src/components/       AuthCard · CreateCard · UrlTable · StatsPanel · ClicksChart
+└── public/docs/          Swagger UI shell
+web/                      build output (gitignored)
 src/
 ├── main.cpp              wiring only: config, DB pool, Redis, listen
 ├── controllers/          HealthController · UrlController · AuthController · AnalyticsController
