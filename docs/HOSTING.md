@@ -43,9 +43,13 @@ Pushing to `main` triggers the build. Watch it under the repo's **Actions** tab;
 the first run takes 15-25 minutes because Drogon is compiled from scratch.
 Later runs hit the cache and take ~2 minutes.
 
-When it finishes, make the image pullable without a login:
-**GitHub → your profile → Packages → urlshortener → Package settings →
-Change visibility → Public.**
+It publishes **two** images: `urlshortener-app` (the C++ binary) and
+`urlshortener-nginx` (nginx with the built React bundle baked in). The server
+pulls both, so it never runs a compiler or npm.
+
+When the run finishes, make **both** packages pullable without a login:
+**GitHub → your profile → Packages →** for each of `urlshortener-app` and
+`urlshortener-nginx` **→ Package settings → Change visibility → Public.**
 
 ---
 
@@ -150,7 +154,8 @@ cat > .env <<CONF
 DOMAIN=yourname-short.duckdns.org
 LETSENCRYPT_EMAIL=you@example.com
 
-IMAGE=ghcr.io/YOURNAME/urlshortener
+IMAGE=ghcr.io/YOURNAME/urlshortener-app
+NGINX_IMAGE=ghcr.io/YOURNAME/urlshortener-nginx
 IMAGE_TAG=latest
 
 DB_NAME=urlshortener
@@ -265,8 +270,8 @@ BACKUP_DIR=/var/backups/urlshortener ./scripts/backup.sh
 
 ## Troubleshooting
 
-**`denied` when pulling the image** — the GHCR package is still private. Make it
-public (Step 1), or log in on the server:
+**`denied` when pulling an image** — one of the two GHCR packages is still
+private. Both must be public (Step 1), or log in on the server:
 ```bash
 echo YOUR_GITHUB_PAT | docker login ghcr.io -u YOURNAME --password-stdin
 ```

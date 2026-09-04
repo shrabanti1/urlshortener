@@ -17,6 +17,17 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Two images: the C++ app, and nginx with the built React bundle baked in.
+    # Without the second one the server would have to run npm itself.
+    strategy:
+      matrix:
+        include:
+          - name: app
+            dockerfile: Dockerfile
+            target: runtime
+          - name: nginx
+            dockerfile: Dockerfile.nginx
+            target: ""
     permissions:
       contents: read
       packages: write        # required to push to GHCR
@@ -27,7 +38,8 @@ jobs:
       # GHCR rejects uppercase names, and repository names often contain them.
       - name: Compute image name
         id: img
-        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}-${{ matrix.name }}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -43,7 +55,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          target: runtime
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           push: true
           # linux/amd64 only: standard x86 VPS. An ARM instance (Hetzner CAX,
           # Oracle Ampere) would need linux/arm64 adding here, which costs a
@@ -52,13 +65,13 @@ jobs:
           tags: |
             ${{ steps.img.outputs.name }}:latest
             ${{ steps.img.outputs.name }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
       - name: Summary
         run: |
           {
-            echo "### Image published"
+            echo "### Image published: ${{ matrix.name }}"
             echo ""
             echo '```'
             echo "docker pull ${{ steps.img.outputs.name }}:latest"
