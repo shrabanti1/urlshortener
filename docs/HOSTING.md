@@ -75,7 +75,14 @@ run this compose file unchanged.
 
 ### If you chose a 1 GB instance
 
-Add swap before deploying, or `docker compose pull` can be OOM-killed:
+The stack idles at roughly 55 MB across four containers and settles near
+400-500 MB under load, so 1 GB is workable. `docker-compose.prod.yml` already
+tunes Postgres down (`shared_buffers=128MB`, `max_connections=50`) and caps the
+app at 320 MB; override with `PG_SHARED_BUFFERS`, `PG_MAX_CONNECTIONS` and
+`APP_MEMORY_LIMIT` if you size up later.
+
+Still add swap -- image pulls and the odd query spike are what actually get
+OOM-killed:
 
 ```bash
 fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
