@@ -56,19 +56,36 @@ When the run finishes, make **both** packages pullable without a login:
 ## Step 2 — Create the server
 
 Any provider works. Pick an **x86_64** instance, since the workflow builds
-`linux/amd64`:
+`linux/amd64`.
 
-| Provider | Plan | Price |
-|---|---|---|
-| Hetzner | CX22 (2 vCPU, 4 GB) | ~EUR 3.79/mo |
-| DigitalOcean | Basic (1 vCPU, 2 GB) | $12/mo |
-| Vultr | Regular (1 vCPU, 2 GB) | $10/mo |
+**DigitalOcean** (recommended if you are outside the EU -- Hetzner's identity
+verification is a common blocker):
 
-Hetzner is the cheapest by a wide margin. Choose **Ubuntu 24.04**, and add your
-SSH key during creation.
+1. <https://cloud.digitalocean.com> -> **Create** -> **Droplets**
+2. Region: **Bangalore** or **Singapore** if you are in India
+3. Image: **Ubuntu 24.04 (LTS) x64**
+4. Type: **Basic** -> **Regular (Disk type: SSD)**
+   - **$12/mo (2 GB / 1 vCPU)** is the comfortable choice
+   - $6/mo (1 GB) works but needs swap; see below
+5. Authentication: **SSH Key** -> add yours (not a password)
+6. Hostname: anything, e.g. `urlshortener`
 
-> Picking an ARM instance (Hetzner CAX) means adding `linux/arm64` to
-> `platforms:` in `.github/workflows/publish.yml`.
+Alternatives at the same price and effort: Vultr, Linode/Akamai. All x86, all
+run this compose file unchanged.
+
+### If you chose a 1 GB instance
+
+Add swap before deploying, or `docker compose pull` can be OOM-killed:
+
+```bash
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+free -h
+```
+
+> An ARM instance (Hetzner CAX, Oracle Ampere, DigitalOcean Premium AMD is
+> still x86) would need `linux/arm64` adding to `platforms:` in
+> `.github/workflows/publish.yml`. Stick to x86 unless you have a reason.
 
 Note the server's public IPv4 address.
 
@@ -128,6 +145,10 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 ```
+
+> DigitalOcean also has its own **Cloud Firewall** in the control panel. It is
+> off by default; if you enable it, allow 22, 80 and 443 there too, or the
+> droplet becomes unreachable regardless of `ufw`.
 
 Harden SSH (`/etc/ssh/sshd_config`), then `systemctl restart ssh`:
 
