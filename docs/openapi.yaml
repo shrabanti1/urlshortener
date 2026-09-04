@@ -13,9 +13,6 @@ info:
     Redirects are `302 Found`, not `301`. A permanent redirect would be cached
     by browsers indefinitely, which would break click analytics and make a URL
     impossible to change or delete.
-  license:
-    name: MIT
-    identifier: MIT
 
 servers:
   # Same origin as the Swagger page itself, so "Try it out" is not a

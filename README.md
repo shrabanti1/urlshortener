@@ -387,13 +387,3 @@ override it with no code change.
 | `RUN_MIGRATIONS` | `false` | apply `db/` at start-up; `true` in Compose and Render |
 | `RATE_LIMIT_ENABLED` | `false` | in-app rate limiting, for standalone deployments |
 | `PORT` | — | set by PaaS platforms; takes precedence over `APP_PORT` |
-
----
-
-## License
-
-[MIT](LICENSE) — Copyright (c) 2026 Shrabanti Mazumdar.
-
-Third-party components keep their own licenses: Drogon (MIT), jwt-cpp (MIT,
-vendored under `third_party/`), libsodium (ISC), and the npm dependencies
-listed in `frontend/package-lock.json`.
