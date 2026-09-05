@@ -17,7 +17,7 @@ tests, containers, and deployment.
 
 ## Web interface
 
-![Shortly web UI](docs/img/screenshot.png)
+![Shortly web UI](docs/img/screenshot.jpg)
 
 React 18 + TypeScript, built with Vite. Sign up, shorten a URL with an optional
 custom alias and expiry, copy it, view per-link click stats with a 30-day
