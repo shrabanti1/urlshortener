@@ -1,5 +1,10 @@
 # URL Shortener
 
+### ▸ Live at **[shrabanti-short.duckdns.org](https://shrabanti-short.duckdns.org)**
+
+[![CI](https://github.com/mazumdarshrabanti5-sys/urlshortener/actions/workflows/ci.yml/badge.svg)](https://github.com/mazumdarshrabanti5-sys/urlshortener/actions/workflows/ci.yml)
+[![Publish image](https://github.com/mazumdarshrabanti5-sys/urlshortener/actions/workflows/publish.yml/badge.svg)](https://github.com/mazumdarshrabanti5-sys/urlshortener/actions/workflows/publish.yml)
+
 A production-style URL shortener backend written in modern C++.
 
 Built incrementally in eight phases, each one adding a capability only after the
@@ -124,9 +129,27 @@ Adding Redis in Phase 3 required **no controller changes at all**.
 🔒 requires `Authorization: Bearer <token>`
 
 Full OpenAPI spec: [`docs/openapi.yaml`](docs/openapi.yaml).
-Interactive docs at **`http://localhost:8081/docs/`** when running with Compose.
+Interactive docs: **<https://shrabanti-short.duckdns.org/docs/>** live, or
+`http://localhost:8081/docs/` when running with Compose.
 Swagger is proxied through nginx so it shares an origin with the API; calling
 the API from a different port would be blocked by the browser as cross-origin.
+
+### Try it against the live instance
+
+```bash
+curl -sI https://shrabanti-short.duckdns.org/I8BfZu | head -2
+# HTTP/2 302
+# location: https://careers.adobe.com/...
+
+curl -s https://shrabanti-short.duckdns.org/health
+# {"database":"connected","status":"ok"}
+```
+
+A **302**, not a 301, and deliberately so: a permanent redirect is cached by
+the browser, which then stops asking the server and the click count silently
+stops moving. Temporary redirects keep every visit coming back through the app.
+
+Against a local stack the same flow, with an account:
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8081/api/auth/register \
@@ -163,9 +186,77 @@ only). Postgres data lives in a named volume and survives `docker compose down`.
 > The first build compiles Drogon from source and takes 10–20 minutes. Later
 > builds reuse that layer and take seconds.
 
-Hosting it publicly: [`docs/RENDER.md`](docs/RENDER.md) (managed, no server to
-run) or [`docs/HOSTING.md`](docs/HOSTING.md) — VPS + DuckDNS + a
-prebuilt image, step by step. General reference: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+---
+
+## Deployment
+
+The live instance runs on a $6/month DigitalOcean droplet — 1 vCPU, 1 GB RAM,
+Ubuntu 24.04 — with five containers behind nginx.
+
+```
+ git push main
+      │
+      ▼
+ GitHub Actions ──build──▶ ghcr.io/…/urlshortener-app     (C++ runtime image)
+                 build──▶ ghcr.io/…/urlshortener-nginx   (nginx + built React bundle)
+      │
+      ▼
+ droplet:  dc pull && dc up -d
+           postgres · redis · app · nginx · certbot
+```
+
+The server never compiles anything. Both images are built by CI and pulled by
+tag, which is what makes a 1 GB box viable at all — compiling Drogon there
+would exhaust the RAM long before it finished.
+
+```bash
+# on the server, as a non-root user
+alias dc='docker compose -f docker-compose.yml -f docker-compose.prod.yml'
+dc pull && dc up -d
+./scripts/init-letsencrypt.sh      # once, after DNS resolves
+```
+
+| Concern | How |
+|---|---|
+| TLS | Let's Encrypt; certbot renews twice daily, 30 days before expiry |
+| Secrets | generated on the server into `.env` (mode 600), never in git or an image |
+| Migrations | applied by the app at start-up, same runner in every environment |
+| Firewall | ufw allows 22/80/443 only; postgres and redis have no published port |
+| Memory | 2 GB swap, `shared_buffers=96MB`, app capped at 320 MB |
+| Backups | nightly `pg_dump` to `/var/backups`, gzipped |
+| Config changes | `nginx.prod.conf` is bind-mounted — `git pull && dc restart nginx` |
+
+Step-by-step runbooks: [`docs/HOSTING.md`](docs/HOSTING.md) (VPS + DuckDNS,
+what the live instance follows), [`docs/RENDER.md`](docs/RENDER.md) (managed,
+no server to run), [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) (general
+reference).
+
+### Two bugs the first real deployment surfaced
+
+Both were invisible in the compose files read separately, and both were caught
+by rendering the merged configuration — `dc config` — before starting anything.
+
+**Compose appends sequences across `-f` files; it does not replace them.**
+The production overlay listed `ports: ["80:80", "443:443"]`, but the base
+file's `${HTTP_PORT}:80` was *added to* that list rather than replaced. That
+port would have been reachable from the internet despite ufw allowing only
+22/80/443 — because Docker writes its own iptables rules into the `DOCKER`
+chain, which is traversed before ufw's rules in `INPUT`. A firewall you have
+correctly configured can still be wide open underneath you. The same merge
+rule left the development `nginx.conf` bind-mounted read-only at exactly the
+path the production container renders with `envsubst`, which would have failed
+the container outright. Fixed with the `!override` tag on both sequences, and
+`!reset null` on the inherited `build:` sections so no server-side compile can
+ever be triggered by accident.
+
+**A health check that could not follow its own redirect.** `/health` was
+defined only in the HTTPS server block. Docker's probe runs *inside* the
+container against `http://127.0.0.1/health`, so it hit the plain-HTTP server,
+got a 301 to `https://127.0.0.1/health`, and failed certificate validation —
+the certificate is issued for the domain, not for a loopback address. nginx
+reported `unhealthy` while serving live traffic perfectly. Fixed by answering
+`/health` on port 80 as well, proxied to the app so the check still means
+something, and restricted to `127.0.0.1` so it is not exposed.
 
 ---
 
