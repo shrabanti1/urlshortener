@@ -1,111 +1,470 @@
-/* Ported verbatim from the vanilla build so the React version is a
-   structural change, not a redesign. */
-:root{
-    --bg:#f6f7f9; --panel:#ffffff; --border:#e3e6ea; --text:#14171a;
-    --muted:#5b6570; --accent:#2f6fed; --accent-hover:#2559c9;
-    --danger:#c8372d; --ok:#1a7f4b; --code-bg:#eef1f5;
-    --shadow:0 1px 2px rgba(16,24,40,.06), 0 4px 12px rgba(16,24,40,.06);
-  }
-  @media (prefers-color-scheme: dark){
-    :root{
-      --bg:#0f1115; --panel:#171a21; --border:#262b34; --text:#e7eaee;
-      --muted:#98a2b0; --accent:#5b8def; --accent-hover:#7aa2f2;
-      --danger:#e5675c; --ok:#4ec98a; --code-bg:#1e232c;
-      --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 14px rgba(0,0,0,.3);
-    }
-  }
-  *{box-sizing:border-box}
-  body{
-    margin:0; background:var(--bg); color:var(--text);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  }
-  .wrap{max-width:920px;margin:0 auto;padding:28px 20px 64px}
-  header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:26px}
-  .brand{display:flex;align-items:baseline;gap:10px}
-  h1{font-size:22px;margin:0;letter-spacing:-.01em}
-  .tag{color:var(--muted);font-size:13px}
-  .who{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+/* Dark only, on purpose: the background field is glowing colour on near-black.
+   The same gradients over white read as muddy smudges, so a light theme would
+   not be the same design with different values -- it would be a second one. */
+:root {
+  color-scheme: dark;
 
-  .card{
-    background:var(--panel);border:1px solid var(--border);border-radius:12px;
-    padding:20px;box-shadow:var(--shadow);margin-bottom:18px;
-  }
-  .card h2{font-size:15px;margin:0 0 14px;letter-spacing:-.005em}
+  --bg: #06060a;
+  --text: #e9eaf0;
+  --muted: #8b90a3;
+  --faint: #62667a;
 
-  label{display:block;font-size:13px;color:var(--muted);margin-bottom:5px}
-  input[type=text],input[type=email],input[type=password],input[type=url]{
-    width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:8px;
-    background:var(--bg);color:var(--text);font:inherit;
-  }
-  input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
-  .row{display:flex;gap:10px;flex-wrap:wrap}
-  .row > *{flex:1;min-width:180px}
-  .field{margin-bottom:12px}
+  /* Cards are translucent, so "panel" is an overlay on whatever drifts behind
+     it rather than an opaque colour. */
+  --panel: rgba(255, 255, 255, 0.038);
+  --panel-hover: rgba(255, 255, 255, 0.055);
+  --border: rgba(255, 255, 255, 0.085);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --code-bg: rgba(255, 255, 255, 0.055);
 
-  button{
-    padding:9px 15px;border-radius:8px;border:1px solid transparent;
-    background:var(--accent);color:#fff;font:inherit;font-weight:500;cursor:pointer;
-    white-space:nowrap;
-  }
-  button:hover{background:var(--accent-hover)}
-  button:disabled{opacity:.55;cursor:not-allowed}
-  button.ghost{background:transparent;border-color:var(--border);color:var(--text)}
-  button.ghost:hover{background:var(--code-bg)}
-  button.link{background:none;border:none;color:var(--accent);padding:4px 6px;cursor:pointer}
-  button.link:hover{text-decoration:underline;background:none}
-  button.link.danger{color:var(--danger)}
-  button.sm{padding:5px 9px;font-size:13px}
+  --accent: #7c8cff;
+  --accent-hover: #93a0ff;
+  --accent-ink: #05060f;
+  --danger: #ff7b72;
+  --ok: #4ade80;
 
-  .tabs{display:flex;gap:6px;margin-bottom:16px}
-  .tabs button{background:transparent;border:1px solid var(--border);color:var(--muted)}
-  .tabs button[aria-selected=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 40px -12px rgba(0, 0, 0, 0.7);
+}
 
-  table{width:100%;border-collapse:collapse;font-size:14px}
-  th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.04em;
-     color:var(--muted);font-weight:600;padding:0 10px 8px;border-bottom:1px solid var(--border)}
-  td{padding:11px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
-  tr:last-child td{border-bottom:none}
-  .orig{max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
-  code{background:var(--code-bg);padding:2px 6px;border-radius:5px;font-size:13px;
-       font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  a{color:var(--accent)}
+* { box-sizing: border-box; }
 
-  .msg{padding:10px 13px;border-radius:8px;font-size:14px;margin-bottom:14px;display:none}
-  .msg.show{display:block}
-  .msg.err{background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)}
-  .msg.ok{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}
+html { -webkit-text-size-adjust: 100%; }
 
-  .result{display:none;margin-top:14px;padding:13px;border-radius:9px;
-          background:var(--code-bg);align-items:center;gap:12px;flex-wrap:wrap}
-  .result.show{display:flex}
-  .result a{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;
-            word-break:break-all;flex:1}
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
 
-  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
-  .stat{background:var(--code-bg);border-radius:9px;padding:13px}
-  .stat .n{font-size:24px;font-weight:600;letter-spacing:-.02em}
-  .stat .l{font-size:12px;color:var(--muted);margin-top:2px}
-  .refs li{display:flex;justify-content:space-between;gap:12px;padding:7px 0;
-           border-bottom:1px solid var(--border);font-size:14px}
-  .refs{list-style:none;padding:0;margin:0}
-  .refs li:last-child{border-bottom:none}
-  .refs .src{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+/* ---- the drifting field ------------------------------------------------- */
 
-  .empty{color:var(--muted);text-align:center;padding:26px 0;font-size:14px}
-  .opt{color:var(--muted);font-weight:400;font-size:11.5px}
-  select{width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:8px;
-         background:var(--bg);color:var(--text);font:inherit}
-  .badge{display:inline-block;font-size:11px;padding:1.5px 6px;border-radius:999px;
-         background:var(--code-bg);color:var(--muted);margin-left:6px;vertical-align:middle}
-  .badge.warn{background:color-mix(in srgb,var(--danger) 14%,transparent);color:var(--danger)}
-  .chart{margin:4px 0 18px}
-  .chart h3{font-size:12px;text-transform:uppercase;letter-spacing:.04em;
-            color:var(--muted);margin:0 0 10px;font-weight:600}
-  .chart svg{display:block;width:100%;height:120px;overflow:visible}
-  .chart .bar{fill:var(--accent);opacity:.85}
-  .chart .bar:hover{opacity:1}
-  .chart .zero{fill:var(--border)}
-  .chart .axis{font-size:10px;fill:var(--muted)}
-  .hint{font-size:12.5px;color:var(--muted);margin-top:8px}
-  .hidden{display:none !important}
-  footer{margin-top:28px;font-size:12.5px;color:var(--muted);text-align:center}
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* Its own stacking context, so the blobs can never paint over content. */
+  isolation: isolate;
+
+  /* Written every frame by Aurora.tsx. Declared here so the field composes
+     correctly on the very first paint, before any pointer has moved -- and
+     on touch devices, where nothing ever writes them. */
+  --mx: 0;
+  --my: 0;
+  --gx: 50vw;
+  --gy: 50vh;
+}
+
+/* Two nested elements, because one element cannot carry two transforms: the
+   outer holds the pointer parallax, the inner runs the ambient drift. Doing
+   both on one would have the keyframes overwrite the parallax every frame. */
+.blob {
+  position: absolute;
+  width: 78vmax;
+  height: 78vmax;
+  will-change: transform;
+  transform: translate3d(calc(var(--mx) * var(--depth)), calc(var(--my) * var(--depth)), 0);
+}
+
+.blob i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  /* screen blending is what makes overlapping blobs brighten into a third
+     colour instead of one flatly covering the other. */
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+/* Depth. The middle layer travels against the pointer, which is what stops
+   the three reading as one flat sheet sliding around. */
+.blob-1 { --depth: 82px; top: -30vmax; left: -22vmax; }
+.blob-2 { --depth: -58px; top: 12vmax; right: -30vmax; }
+.blob-3 { --depth: 40px; bottom: -38vmax; left: 18vmax; }
+
+.blob-1 i {
+  background: radial-gradient(circle at 50% 50%, rgba(88, 80, 236, 0.55), rgba(88, 80, 236, 0) 62%);
+  animation: drift-1 34s ease-in-out infinite;
+}
+
+.blob-2 i {
+  background: radial-gradient(circle at 50% 50%, rgba(14, 165, 233, 0.42), rgba(14, 165, 233, 0) 62%);
+  animation: drift-2 44s ease-in-out infinite;
+}
+
+.blob-3 i {
+  background: radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.36), rgba(168, 85, 247, 0) 62%);
+  animation: drift-3 52s ease-in-out infinite;
+}
+
+/* The light the cursor carries. A fixed-size element moved by transform,
+   rather than a gradient whose `at` position changes -- the latter repaints a
+   viewport-sized area every frame, this only recomposites. */
+.glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 560px;
+  height: 560px;
+  margin: -280px 0 0 -280px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, rgba(150, 170, 255, 0.13), rgba(150, 170, 255, 0) 66%);
+  mix-blend-mode: screen;
+  transform: translate3d(var(--gx), var(--gy), 0);
+  will-change: transform;
+}
+
+/* Long, prime-ish durations so the three never resynchronise into a visible
+   loop. Only transform and opacity animate -- both compositor properties. */
+@keyframes drift-1 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33%      { transform: translate3d(14vw, 8vh, 0) scale(1.14); }
+  66%      { transform: translate3d(-6vw, 16vh, 0) scale(0.92); }
+}
+
+@keyframes drift-2 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.05); }
+  40%      { transform: translate3d(-18vw, 12vh, 0) scale(0.88); }
+  70%      { transform: translate3d(-4vw, -10vh, 0) scale(1.18); }
+}
+
+@keyframes drift-3 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.95); }
+  50%      { transform: translate3d(16vw, -14vh, 0) scale(1.2); }
+}
+
+/* Film grain. Without it the gradients band into visible steps on an 8-bit
+   panel; a little noise dithers the ramp and hides it. */
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Motion here is ambient and continuous, which is exactly the kind that
+   triggers vestibular symptoms. Honour the system setting: keep the colour,
+   drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .blob i { animation: none; }
+  .blob { transform: none; }
+  .glow { display: none; }
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ---- layout ------------------------------------------------------------- */
+
+.wrap {
+  position: relative;
+  z-index: 1;
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 48px 20px 80px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 34px;
+}
+
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+
+h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  background: linear-gradient(180deg, #ffffff 20%, rgba(255, 255, 255, 0.62));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tag { color: var(--faint); font-size: 12.5px; letter-spacing: 0.01em; }
+.who { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
+
+/* ---- glass cards -------------------------------------------------------- */
+
+.card {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* A one-pixel highlight along the top edge. It is what separates "translucent
+   panel" from "glass": real glass catches light on its top bevel. */
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  pointer-events: none;
+}
+
+/* Safari and Firefox without backdrop-filter would show unreadably thin
+   panels, so those get an opaque background instead. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .card { background: #12131c; }
+}
+
+.card h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+/* ---- forms -------------------------------------------------------------- */
+
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+
+input[type=text], input[type=email], input[type=password], input[type=url], select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text);
+  font: inherit;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+input::placeholder { color: var(--faint); }
+
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.22);
+}
+
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.row > * { flex: 1; min-width: 180px; }
+.field { margin-bottom: 14px; }
+
+/* ---- buttons ------------------------------------------------------------ */
+
+button {
+  padding: 10px 17px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.24) inset, 0 6px 18px -8px rgba(124, 140, 255, 0.85);
+  transition: transform 0.12s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+
+button:hover { filter: brightness(1.07); box-shadow: 0 1px 0 rgba(255,255,255,.3) inset, 0 10px 26px -8px rgba(124,140,255,.95); }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; filter: none; }
+
+/* :focus-visible, not :focus -- a mouse click should not leave a ring behind,
+   but a Tab press must. */
+button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+
+button.ghost {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border);
+  color: var(--text);
+  box-shadow: none;
+  font-weight: 500;
+}
+button.ghost:hover { background: var(--panel-hover); border-color: var(--border-strong); filter: none; }
+
+button.link {
+  background: none; border: none; color: var(--accent);
+  padding: 4px 6px; box-shadow: none; font-weight: 500;
+}
+button.link:hover { background: none; filter: none; text-decoration: underline; }
+button.link.danger { color: var(--danger); }
+button.sm { padding: 6px 11px; font-size: 13px; }
+
+.tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+.tabs button {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  box-shadow: none;
+  font-weight: 500;
+}
+.tabs button[aria-selected=true] {
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+  border-color: transparent;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+/* ---- table -------------------------------------------------------------- */
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+
+th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+  font-weight: 600;
+  padding: 0 10px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+td { padding: 12px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); vertical-align: middle; }
+tbody tr { transition: background 0.14s ease; }
+tbody tr:hover { background: rgba(255, 255, 255, 0.028); }
+tr:last-child td { border-bottom: none; }
+
+.orig {
+  max-width: 330px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--muted);
+}
+
+code {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+a { color: var(--accent); text-decoration-color: rgba(124, 140, 255, 0.4); }
+a:hover { color: var(--accent-hover); }
+
+/* ---- messages ----------------------------------------------------------- */
+
+.msg {
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  margin-bottom: 16px;
+  display: none;
+  border: 1px solid transparent;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.msg.show { display: block; animation: rise 0.22s ease-out; }
+.msg.err { background: rgba(255, 123, 114, 0.11); border-color: rgba(255, 123, 114, 0.3); color: var(--danger); }
+.msg.ok  { background: rgba(74, 222, 128, 0.11); border-color: rgba(74, 222, 128, 0.3); color: var(--ok); }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.result {
+  display: none;
+  margin-top: 16px;
+  padding: 15px;
+  border-radius: 11px;
+  background: rgba(124, 140, 255, 0.08);
+  border: 1px solid rgba(124, 140, 255, 0.24);
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.result.show { display: flex; animation: rise 0.24s ease-out; }
+.result a {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px; word-break: break-all; flex: 1;
+}
+
+/* ---- stats -------------------------------------------------------------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.stat {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 15px;
+}
+
+.stat .n {
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  /* Tabular figures: without them the numbers jitter sideways as they change. */
+  font-variant-numeric: tabular-nums;
+}
+.stat .l { font-size: 11.5px; color: var(--faint); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+.refs { list-style: none; padding: 0; margin: 0; }
+.refs li {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 9px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 14px;
+}
+.refs li:last-child { border-bottom: none; }
+.refs .src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+
+.empty { color: var(--faint); text-align: center; padding: 32px 0; font-size: 14px; }
+.opt { color: var(--faint); font-weight: 400; font-size: 11.5px; }
+
+.badge {
+  display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: var(--code-bg); border: 1px solid var(--border);
+  color: var(--muted); margin-left: 7px; vertical-align: middle;
+}
+.badge.warn { background: rgba(255, 123, 114, 0.14); border-color: rgba(255, 123, 114, 0.3); color: var(--danger); }
+
+/* ---- chart -------------------------------------------------------------- */
+
+.chart { margin: 6px 0 20px; }
+.chart h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--faint); margin: 0 0 12px; font-weight: 600;
+}
+.chart svg { display: block; width: 100%; height: 120px; overflow: visible; }
+.chart .bar { fill: var(--accent); opacity: 0.75; transition: opacity 0.14s ease; }
+.chart .bar:hover { opacity: 1; }
+.chart .zero { fill: rgba(255, 255, 255, 0.07); }
+.chart .axis { font-size: 10px; fill: var(--faint); }
+
+.hint { font-size: 12.5px; color: var(--faint); margin-top: 10px; }
+.hidden { display: none !important; }
+
+footer {
+  margin-top: 36px;
+  font-size: 12.5px;
+  color: var(--faint);
+  text-align: center;
+}
+
+@media (max-width: 560px) {
+  .wrap { padding: 30px 16px 60px; }
+  header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .orig { max-width: 150px; }
+}

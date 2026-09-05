@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, setSessionLostHandler, tokens } from "./api";
 import type { AuthResponse, Stats, UrlListItem } from "./types";
+import Aurora from "./components/Aurora";
 import AuthCard from "./components/AuthCard";
 import CreateCard from "./components/CreateCard";
 import StatsPanel from "./components/StatsPanel";
@@ -99,45 +100,48 @@ export default function App() {
   }
 
   return (
-    <div className="wrap">
-      <header>
-        <div className="brand">
-          <h1>Shortly</h1>
-          <span className="tag">C++ · Drogon · PostgreSQL · Redis</span>
-        </div>
-        <div className="who">
-          {session === "in" && (
-            <>
-              <span>{email}</span>
-              <button className="ghost sm" onClick={handleLogout}>Log out</button>
-            </>
-          )}
-        </div>
-      </header>
+    <>
+      <Aurora />
+      <div className="wrap">
+        <header>
+          <div className="brand">
+            <h1>Shortly</h1>
+            <span className="tag">C++ · Drogon · PostgreSQL · Redis</span>
+          </div>
+          <div className="who">
+            {session === "in" && (
+              <>
+                <span>{email}</span>
+                <button className="ghost sm" onClick={handleLogout}>Log out</button>
+              </>
+            )}
+          </div>
+        </header>
 
-      {message && (
-        <div className={`msg show ${message.kind}`}>{message.text}</div>
-      )}
+        {message && (
+          <div className={`msg show ${message.kind}`}>{message.text}</div>
+        )}
 
-      {session === "out" && <AuthCard onSignedIn={onSignedIn} onError={say} />}
+        {session === "out" && <AuthCard onSignedIn={onSignedIn} onError={say} />}
 
-      {session === "in" && (
-        <>
-          <CreateCard onCreated={loadUrls} onError={say} />
+        {session === "in" && (
+          <>
+            <CreateCard onCreated={loadUrls} onError={say} />
 
-          <section className="card">
-            <h2>Your links</h2>
-            <UrlTable urls={urls} onStats={showStats} onDelete={handleDelete} />
-          </section>
+            <section className="card">
+              <h2>Your links</h2>
+              <UrlTable urls={urls} onStats={showStats} onDelete={handleDelete} />
+            </section>
 
-          {stats && <StatsPanel stats={stats} onClose={() => setStats(null)} />}
-        </>
-      )}
+            {stats && <StatsPanel stats={stats} onClose={() => setStats(null)} />}
+          </>
+        )}
 
-      <footer>
-        <a href="/docs/" target="_blank" rel="noopener noreferrer">API documentation</a>
-        {" · short links work in any browser, no login needed"}
-      </footer>
-    </div>
+        <footer>
+          <a href="/docs/" target="_blank" rel="noopener noreferrer">API documentation</a>
+          {" · short links work in any browser, no login needed"}
+        </footer>
+      </div>
+    </>
   );
 }

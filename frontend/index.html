@@ -3,7 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#06060a" />
+    <meta name="description" content="A URL shortener with a C++ backend: Drogon, PostgreSQL, Redis." />
     <title>Shortly — URL Shortener</title>
+    <!-- Painted before the stylesheet arrives. Without it the browser shows a
+         white page for one frame, which on a dark design reads as a flash. -->
+    <style>html,body{background:#06060a}</style>
   </head>
   <body>
     <div id="root"></div>
