@@ -31,6 +31,9 @@ services:
     # Falls back to a local build if IMAGE is unset.
     image: ${IMAGE:-urlshortener-app}:${IMAGE_TAG:-latest}
     pull_policy: ${PULL_POLICY:-always}
+    # Drop the base file's build section so a stray `up --build` can never
+    # try to compile C++ on a 1 GB server.
+    build: !reset null
     environment:
       BASE_URL: https://${DOMAIN:?DOMAIN must be set}
       LOG_LEVEL: INFO
@@ -50,10 +53,18 @@ services:
     # Pull the prebuilt image rather than compiling the frontend on the server.
     image: ${NGINX_IMAGE:-urlshortener-nginx}:${IMAGE_TAG:-latest}
     pull_policy: ${PULL_POLICY:-always}
-    ports:
+    build: !reset null
+    # !override, not a plain list: Compose APPENDS sequences when merging
+    # files, so without it the base file's "${HTTP_PORT}:80" stays published.
+    # Docker writes its own iptables rules ahead of ufw's, so that port would
+    # be reachable from the internet regardless of the firewall.
+    ports: !override
       - "80:80"
       - "443:443"
-    volumes:
+    # Same reason, and worse here: the base file bind-mounts nginx.conf
+    # read-only at the very path the command below writes with envsubst.
+    # Appending would make nginx fail with "Read-only file system".
+    volumes: !override
       # envsubst is not available, so the template is rendered at start-up by
       # substituting ${DOMAIN}. See the command below.
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.template.conf:ro
