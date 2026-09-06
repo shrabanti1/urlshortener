@@ -2,8 +2,8 @@
 
 ### ▸ Live at **[shrabanti-short.duckdns.org](https://shrabanti-short.duckdns.org)**
 
-[![CI](https://github.com/mazumdarshrabanti5-sys/urlshortener/actions/workflows/ci.yml/badge.svg)](https://github.com/mazumdarshrabanti5-sys/urlshortener/actions/workflows/ci.yml)
-[![Publish image](https://github.com/mazumdarshrabanti5-sys/urlshortener/actions/workflows/publish.yml/badge.svg)](https://github.com/mazumdarshrabanti5-sys/urlshortener/actions/workflows/publish.yml)
+[![CI](https://github.com/shrabanti1/urlshortener/actions/workflows/ci.yml/badge.svg)](https://github.com/shrabanti1/urlshortener/actions/workflows/ci.yml)
+[![Publish image](https://github.com/shrabanti1/urlshortener/actions/workflows/publish.yml/badge.svg)](https://github.com/shrabanti1/urlshortener/actions/workflows/publish.yml)
 
 A production-style URL shortener backend written in modern C++.
 
