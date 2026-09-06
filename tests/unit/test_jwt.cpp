@@ -61,7 +61,23 @@ TEST_F(JwtTest, RejectsTamperedPayload)
 TEST_F(JwtTest, RejectsTamperedSignature)
 {
     auto token = jwt_util::issueAccessToken(42, "alice@example.com");
-    token.back() = (token.back() == 'A') ? 'B' : 'A';
+    const auto lastDot = token.rfind('.');
+    ASSERT_NE(lastDot, std::string::npos);
+
+    // The FIRST character of the signature, not the last one.
+    //
+    // HMAC-SHA256 is 32 bytes, which base64url-encodes to 43 characters:
+    // 43 * 6 = 258 bits carrying 256, so the final character's low two bits
+    // are padding that the decoder discards. 'A', 'B', 'C' and 'D' differ
+    // only in those bits and all decode to the same byte -- so mutating the
+    // last character is a no-op whenever the signature happens to end in one
+    // of them, the token still verifies, and this test fails. Four of
+    // sixty-four characters: it failed roughly one run in sixteen.
+    //
+    // Every bit of the first character lands in byte 0, so any change there
+    // always changes the signature.
+    auto &firstSigChar = token[lastDot + 1];
+    firstSigChar = (firstSigChar == 'A') ? 'B' : 'A';
     EXPECT_FALSE(jwt_util::verifyAccessToken(token).has_value());
 }
 
